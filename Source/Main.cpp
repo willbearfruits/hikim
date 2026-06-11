@@ -57,6 +57,15 @@ public:
 
     void initialise (const String&) override
     {
+        // crashes write a backtrace so bugs come home with evidence
+        juce::SystemStats::setApplicationCrashHandler ([] (void*)
+        {
+            const auto trace = juce::SystemStats::getStackBacktrace();
+            juce::File ("/tmp/ruin-crash.log").replaceWithText (
+                juce::Time::getCurrentTime().toString (true, true) + "\n" + trace);
+            std::cerr << "RUIN crashed:\n" << trace << std::endl;
+        });
+
         look = std::make_unique<Look>();
         juce::LookAndFeel::setDefaultLookAndFeel (look.get());
         window = std::make_unique<MainWindow>();

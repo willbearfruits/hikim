@@ -82,6 +82,10 @@ MainComponent::MainComponent()
     };
 
     engine->onRecordingFinished = [this] { timeline->rebuild(); };
+    engine->onInsertWillBeRemoved = [this] (const String& insertUid)
+    {
+        editorWindows.erase (insertUid);    // editor + window die before their processor does
+    };
 
     session.onSessionReplaced = [this]
     {

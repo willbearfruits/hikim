@@ -267,10 +267,15 @@ void PatcherProcessor::rebuildOsc (Program& prog)
             }
             if (receivers.count (port) && addr.startsWith ("/"))
             {
-                auto binding = std::make_unique<OscInBinding>();
-                binding->val = obj.ext;
-                receivers[port]->addListener (binding.get(), juce::OSCAddress (addr));
-                inBindings.push_back (std::move (binding));
+                // OSCAddress throws on malformed patterns - typed args are user input
+                try
+                {
+                    auto binding = std::make_unique<OscInBinding>();
+                    binding->val = obj.ext;
+                    receivers[port]->addListener (binding.get(), juce::OSCAddress (addr));
+                    inBindings.push_back (std::move (binding));
+                }
+                catch (const juce::OSCException&) {}
             }
         }
         else if (obj.type == oOscOut && oscOutSeen < (int) oscOutNodes.size())
@@ -280,14 +285,20 @@ void PatcherProcessor::rebuildOsc (Program& prog)
             const String host = args.size() > 0 ? args[0] : "127.0.0.1";
             const int port = args.size() > 1 ? args[1].getIntValue() : 9001;
             const String addr = args.size() > 2 ? args[2] : "/ruin/out";
-            OscOutBinding ob;
-            ob.sender = std::make_unique<juce::OSCSender>();
-            if (ob.sender->connect (host, port) && addr.startsWith ("/"))
+            try
             {
-                ob.addr = addr;
-                ob.tap = obj.ext;
-                outBindings.push_back (std::move (ob));
+                OscOutBinding ob;
+                ob.sender = std::make_unique<juce::OSCSender>();
+                if (ob.sender->connect (host, port) && addr.startsWith ("/"))
+                {
+                    juce::OSCAddressPattern probe (addr);   // validate now, not at send time
+                    juce::ignoreUnused (probe);
+                    ob.addr = addr;
+                    ob.tap = obj.ext;
+                    outBindings.push_back (std::move (ob));
+                }
             }
+            catch (const juce::OSCException&) {}
         }
     }
 }
@@ -300,7 +311,8 @@ void PatcherProcessor::timerCallback()
         if (std::abs (v - ob.last) > 1.0e-5f)
         {
             ob.last = v;
-            ob.sender->send (juce::OSCMessage (juce::OSCAddressPattern (ob.addr), v));
+            try { ob.sender->send (juce::OSCMessage (juce::OSCAddressPattern (ob.addr), v)); }
+            catch (const juce::OSCException&) {}
         }
     }
     graveyard.erase (std::remove_if (graveyard.begin(), graveyard.end(),
@@ -563,8 +575,9 @@ void PatcherProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
             if (o.type == oDac)
             {
                 if (o.in0 >= 0) buffer.addFrom (0, 0, bufs.getReadPointer (o.in0), n);
-                if (buffer.getNumChannels() > 1)
-                    buffer.addFrom (1, 0, bufs.getReadPointer (o.in1 >= 0 ? o.in1 : juce::jmax (0, o.in0)), n);
+                const int r = o.in1 >= 0 ? o.in1 : o.in0;   // mono patches mirror to both sides
+                if (r >= 0 && buffer.getNumChannels() > 1)
+                    buffer.addFrom (1, 0, bufs.getReadPointer (r), n);
             }
     }
 }

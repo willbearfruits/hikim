@@ -148,6 +148,7 @@ public:
 
     std::function<void()> onRecordingFinished;
     std::function<void()> onTransportStateChanged;
+    std::function<void (const String& insertUid)> onInsertWillBeRemoved;   // close editors BEFORE the node dies
 
     SessionModel& session;
     PluginHost& pluginHost;

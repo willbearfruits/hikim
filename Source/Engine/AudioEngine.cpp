@@ -275,7 +275,12 @@ void AudioEngine::rebuildGraph()
     }
     for (auto it = insertNodes.begin(); it != insertNodes.end();)
     {
-        if (! liveInserts.contains (it->first)) { graph.removeNode (it->second->nodeID); it = insertNodes.erase (it); }
+        if (! liveInserts.contains (it->first))
+        {
+            if (onInsertWillBeRemoved) onInsertWillBeRemoved (it->first);
+            graph.removeNode (it->second->nodeID);
+            it = insertNodes.erase (it);
+        }
         else ++it;
     }
     for (auto it = trackNodes.begin(); it != trackNodes.end();)
@@ -337,7 +342,8 @@ void AudioEngine::rebuildGraph()
                 const String iuid = instIns[id::uid];
                 if (insertNodes.count (iuid) && insertIdents[iuid] != instIns[id::ident].toString())
                 {
-                    graph.removeNode (insertNodes[iuid]->nodeID);   // plugin swapped
+                    if (onInsertWillBeRemoved) onInsertWillBeRemoved (iuid);
+                    graph.removeNode (insertNodes[iuid]->nodeID);   // instrument swapped
                     insertNodes.erase (iuid);
                 }
                 if (! insertNodes.count (iuid))
@@ -362,6 +368,7 @@ void AudioEngine::rebuildGraph()
             const String iuid = ins[id::uid];
             if (insertNodes.count (iuid) && insertIdents[iuid] != ins[id::ident].toString())
             {
+                if (onInsertWillBeRemoved) onInsertWillBeRemoved (iuid);
                 graph.removeNode (insertNodes[iuid]->nodeID);
                 insertNodes.erase (iuid);
             }

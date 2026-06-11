@@ -1721,7 +1721,8 @@ void TimelineView::valueTreePropertyChanged (ValueTree& tree, const Identifier& 
         layoutPending = true;
     else if (tree.hasType (id::TRACK))
     {
-        if (prop == id::height) layoutPending = true;   // live resize: never rebuild mid-drag
+        if (prop == id::height) layoutPending = true;       // live resize: never rebuild mid-drag
+        else if (prop == id::x || prop == id::y) {}         // PATCHER-mode box moves: not ours
         else rebuildPending = true;
     }
 }
