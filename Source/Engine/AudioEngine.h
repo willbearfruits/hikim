@@ -76,6 +76,12 @@ public:
     const RecordSession* getLiveRecording (const String& trackUid) const;
     double getRecordStartSeconds() const { return recStartSec; }
 
+    // ---- super multi-format media access ----
+    // Returns a JUCE-readable file for any media: the file itself when a
+    // built-in decoder opens it, otherwise a cached one-time ffmpeg transcode.
+    File mediaFileFor (const File& source);
+    std::unique_ptr<juce::AudioFormatReader> createAnyReader (const File& source);
+
     // ---- file preview (FILES bin) ----
     void startPreview (const File&);
     void stopPreview();
@@ -199,6 +205,7 @@ private:
     std::map<String, juce::AudioProcessorGraph::Node::Ptr> insertNodes;     // by INSERT uid
     std::map<String, String> insertIdents;                                  // detect plugin swaps
     std::map<String, std::pair<String, std::shared_ptr<juce::AudioFormatReader>>> readerCache; // clipUid -> (path, reader)
+    std::map<String, String> bridgeCache;                                   // src key -> readable path
     std::map<String, std::shared_ptr<const AudioPlaylist>> lastPlaylists;
     std::map<String, std::shared_ptr<const MidiPlaylist>> lastMidiPlaylists;
     std::vector<std::shared_ptr<const AudioPlaylist>> playlistGraveyard;

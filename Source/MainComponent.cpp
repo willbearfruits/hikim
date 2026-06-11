@@ -210,7 +210,7 @@ void MainComponent::showVideoWindow()
 bool MainComponent::isInterestedInFileDrag (const juce::StringArray& files)
 {
     for (const auto& f : files)
-        if (File (f).hasFileExtension ("wav;aif;aiff;flac;ogg;mp3;m4a;caf;wma;mp4;mov;avi;mkv;webm")
+        if (File (f).hasFileExtension ("wav;aif;aiff;flac;ogg;mp3;m4a;caf;wma;opus;aac;wv;mp2;amr;mka;mp4;mov;avi;mkv;webm")
             || f.endsWith (names::projectExtension))
             return true;
     return false;
@@ -333,6 +333,10 @@ bool MainComponent::keyPressed (const juce::KeyPress& k, juce::Component* origin
         if (is ('E')) { showExportDialog (*engine, session); return true; }
         if (is ('Z')) { k.getModifiers().isShiftDown() ? session.undo.redo() : session.undo.undo(); return true; }
         if (is ('D')) { timeline->duplicateSelected(); return true; }
+        if (is ('X')) { timeline->copySelected (true); return true; }
+        if (is ('C')) { timeline->copySelected (false); return true; }
+        if (is ('V')) { timeline->pasteAtPlayhead(); return true; }
+        if (is ('A')) { timeline->selectAll(); return true; }
         return false;
     }
     if (is ('R')) { engine->toggleRecord(); return true; }
@@ -345,7 +349,14 @@ bool MainComponent::keyPressed (const juce::KeyPress& k, juce::Component* origin
     if (is ('S')) { timeline->splitSelectedAtPlayhead(); return true; }
     if (kc == juce::KeyPress::deleteKey || kc == juce::KeyPress::backspaceKey)
     {
-        timeline->deleteSelected();
+        if (k.getModifiers().isShiftDown()) timeline->rippleDeleteSelected();
+        else timeline->deleteSelected();
+        return true;
+    }
+    if (kc == juce::KeyPress::escapeKey)
+    {
+        ui.selectedClips.clear();
+        timeline->repaint();
         return true;
     }
     return false;

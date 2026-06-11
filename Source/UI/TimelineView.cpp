@@ -196,7 +196,7 @@ public:
         if (clip[id::type].toString() == "audio")
         {
             thumb = std::make_unique<juce::AudioThumbnail> (256, tv.engine.formatManager, tv.engine.thumbCache);
-            thumb->setSource (new juce::FileInputSource (File (clip[id::file].toString())));
+            thumb->setSource (new juce::FileInputSource (tv.engine.mediaFileFor (File (clip[id::file].toString()))));
         }
     }
 
@@ -361,7 +361,10 @@ public:
     void showMenu()
     {
         juce::PopupMenu m;
+        m.addItem (9, "Cut");
+        m.addItem (10, "Copy");
         m.addItem (1, "Delete");
+        m.addItem (11, "Ripple delete");
         m.addItem (2, "Duplicate");
         m.addItem (3, "Split at playhead");
         m.addItem (4, "Rename...");
@@ -375,6 +378,7 @@ public:
         if ((int) clip.getProperty (id::lane, 0) != 0)
             m.addItem (7, "Promote take to lane 0");
 
+        m.addSeparator();
         // capture the view pointer + clip tree, never `this`: the menu callback
         // can outlive this ClipComp (any rebuild deletes it)
         auto* view = &tv;
@@ -384,6 +388,9 @@ public:
             auto& undo = view->session.undo;
             undo.beginNewTransaction ("clip menu");
             if (r == 1) c.getParent().removeChild (c, &undo);
+            else if (r == 9) view->copySelected (true);
+            else if (r == 10) view->copySelected (false);
+            else if (r == 11) view->rippleDeleteSelected();
             else if (r == 2) view->duplicateSelected();
             else if (r == 3) view->splitSelectedAtPlayhead();
             else if (r == 4)
@@ -976,7 +983,7 @@ public:
     bool isInterestedInFileDrag (const juce::StringArray& files) override
     {
         for (const auto& f : files)
-            if (File (f).hasFileExtension ("wav;aif;aiff;flac;ogg;mp3;m4a;caf;wma"))
+            if (File (f).hasFileExtension ("wav;aif;aiff;flac;ogg;mp3;m4a;caf;wma;opus;aac;wv;mp2;amr;mka"))
                 return true;
         return false;
     }
@@ -1228,6 +1235,78 @@ void TimelineView::deleteSelected()
     rebuild();
 }
 
+void TimelineView::copySelected (bool cut)
+{
+    clipboard.clear();
+    for (auto track : session.tracks())
+        for (auto clip : SessionModel::clipsOf (track))
+            if (ui.selectedClips.count (clip[id::uid].toString()) > 0)
+                clipboard.emplace_back (track[id::uid].toString(), clip.createCopy());
+    if (cut && ! clipboard.empty())
+        deleteSelected();
+}
+
+void TimelineView::pasteAtPlayhead()
+{
+    if (clipboard.empty()) return;
+    double earliest = std::numeric_limits<double>::max();
+    for (const auto& [tuid, c] : clipboard)
+        earliest = juce::jmin (earliest, (double) c[id::start]);
+
+    const double ph = snap (engine.getPositionSeconds());
+    session.undo.beginNewTransaction ("paste");
+    ui.selectedClips.clear();
+    for (const auto& [tuid, c] : clipboard)
+    {
+        auto track = session.findTrack (tuid);
+        if (! track.isValid()) continue;
+        auto copy = c.createCopy();
+        copy.setProperty (id::uid, SessionModel::newUID(), nullptr);
+        copy.setProperty (id::start, ph + ((double) c[id::start] - earliest), nullptr);
+        SessionModel::clipsOf (track).appendChild (copy, &session.undo);
+        ui.selectedClips.insert (copy[id::uid].toString());
+    }
+    rebuild();
+}
+
+void TimelineView::rippleDeleteSelected()
+{
+    session.undo.beginNewTransaction ("ripple delete");
+    for (auto track : session.tracks())
+    {
+        std::vector<ValueTree> sel;
+        for (auto clip : SessionModel::clipsOf (track))
+            if (ui.selectedClips.count (clip[id::uid].toString()) > 0)
+                sel.push_back (clip);
+        std::sort (sel.begin(), sel.end(),
+                   [] (const ValueTree& a, const ValueTree& b)
+                   { return (double) a[id::start] > (double) b[id::start]; });   // rightmost first
+
+        for (auto& clip : sel)
+        {
+            const double s = clip[id::start], len = clip[id::length];
+            auto clips = SessionModel::clipsOf (track);
+            clips.removeChild (clip, &session.undo);
+            for (auto other : clips)
+                if ((double) other[id::start] >= s)
+                    other.setProperty (id::start,
+                                       juce::jmax (0.0, (double) other[id::start] - len), &session.undo);
+        }
+    }
+    ui.selectedClips.clear();
+    rebuild();
+}
+
+void TimelineView::selectAll()
+{
+    ui.selectedClips.clear();
+    for (auto track : session.tracks())
+        for (auto clip : SessionModel::clipsOf (track))
+            ui.selectedClips.insert (clip[id::uid].toString());
+    repaint();
+    for (auto* cc : clipComps) cc->repaint();
+}
+
 void TimelineView::duplicateSelected()
 {
     session.undo.beginNewTransaction ("duplicate");
@@ -1266,7 +1345,7 @@ void TimelineView::importFiles (const juce::StringArray& files, juce::Point<int>
     bool added = false;
     for (const auto& fpath : files)
     {
-        std::unique_ptr<juce::AudioFormatReader> reader (engine.formatManager.createReaderFor (File (fpath)));
+        auto reader = engine.createAnyReader (File (fpath));
         if (reader == nullptr)
         {
             failed.add (File (fpath).getFileName());
@@ -1282,7 +1361,8 @@ void TimelineView::importFiles (const juce::StringArray& files, juce::Point<int>
 
     if (! failed.isEmpty())
         juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Import",
-            "No decoder for:\n" + failed.joinIntoString ("\n"));
+            "No decoder for:\n" + failed.joinIntoString ("\n")
+            + "\n\n(built-in formats + anything ffmpeg can read; is ffmpeg installed?)");
     if (added)
         rebuild();
 }

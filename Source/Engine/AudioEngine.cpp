@@ -573,7 +573,7 @@ void AudioEngine::updateTrackPlaylists (const ValueTree& t)
 
             // pitch-locked stretch: swap to the RubberBand render when it's cached;
             // play varispeed until then (the background render triggers a re-snapshot)
-            File f ((c[id::file]).toString());
+            File f = mediaFileFor (File ((c[id::file]).toString()));
             double offset = (double) c[id::offset];
             double playRatio = (fileSR / currentSR) / stretchRate;
             if ((int) c.getProperty (id::stretchMode, 0) == 1
@@ -1398,12 +1398,67 @@ void AudioEngine::renderMetronome (juce::AudioBuffer<float>& buf, const TempoMap
     }
 }
 
+// ============================================================ media bridge
+
+File AudioEngine::mediaFileFor (const File& src)
+{
+    if (! src.existsAsFile())
+        return src;
+
+    const String key = src.getFullPathName() + "|"
+                     + String (src.getLastModificationTime().toMilliseconds());
+    auto hit = bridgeCache.find (key);
+    if (hit != bridgeCache.end())
+        return File (hit->second);
+
+    {
+        std::unique_ptr<juce::AudioFormatReader> probe (formatManager.createReaderFor (src));
+        if (probe != nullptr)
+        {
+            bridgeCache[key] = src.getFullPathName();
+            return src;
+        }
+    }
+
+    // ffmpeg fallback: transcode once into a temp cache, reuse forever.
+    // EXTEND: background transcode with a placeholder clip for very long files.
+    auto dir = File::getSpecialLocation (File::tempDirectory)
+                   .getChildFile (String (names::appName) + "-transcode");
+    dir.createDirectory();
+    const File cached = dir.getChildFile (String::toHexString (key.hashCode64()) + ".wav");
+
+    if (! cached.existsAsFile())
+    {
+        juce::ChildProcess proc;
+        const juce::StringArray args { "ffmpeg", "-y", "-loglevel", "error",
+                                       "-i", src.getFullPathName(),
+                                       "-vn", "-acodec", "pcm_f32le",
+                                       cached.getFullPathName() };
+        const bool ok = proc.start (args)
+                        && proc.waitForProcessToFinish (180000)
+                        && proc.getExitCode() == 0
+                        && cached.getSize() > 64;
+        if (! ok)
+        {
+            cached.deleteFile();
+            return src;          // caller's reader open fails and reports
+        }
+    }
+    bridgeCache[key] = cached.getFullPathName();
+    return cached;
+}
+
+std::unique_ptr<juce::AudioFormatReader> AudioEngine::createAnyReader (const File& src)
+{
+    return std::unique_ptr<juce::AudioFormatReader> (formatManager.createReaderFor (mediaFileFor (src)));
+}
+
 // ============================================================ preview
 
 void AudioEngine::startPreview (const File& f)
 {
     stopPreview();
-    if (auto* reader = formatManager.createReaderFor (f))
+    if (auto* reader = formatManager.createReaderFor (mediaFileFor (f)))
     {
         previewSource = std::make_unique<juce::AudioFormatReaderSource> (reader, true);
         previewTransport.setSource (previewSource.get(), 1 << 15, &diskThread, reader->sampleRate);

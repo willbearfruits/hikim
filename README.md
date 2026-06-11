@@ -53,7 +53,9 @@ ASIO: drop the Steinberg ASIO SDK in and enable `JUCE_ASIO=1` in `CMakeLists.txt
   **Del** delete clips - **Ctrl+D** duplicate - **Ctrl+Z / Ctrl+Shift+Z** undo/redo -
   **Ctrl+S** save - **Ctrl+E** export - **Ctrl+wheel** zoom.
 - Drag audio files anywhere in the window to import (`.dgproj` opens, video files load
-  the video track). The **FILES** tab is a bin: browse a folder, double-click to preview,
+  the video track). Formats: WAV/AIFF/FLAC/OGG/MP3 natively; with **ffmpeg** installed,
+  anything it can decode (opus, m4a, wma, exotic wavs, ...) bridges in via a one-time
+  cached transcode. The **FILES** tab is a bin: browse a folder, double-click to preview,
   drag onto the timeline. The **FX** tab is a searchable explorer (TEETH, built-in
   instruments, plugins) — drag onto a track or double-click to hit the selected track.
 - Right-click everything: ruler (tempo/timesig changes, markers), clips, track headers,

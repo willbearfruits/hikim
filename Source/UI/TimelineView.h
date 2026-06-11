@@ -25,6 +25,10 @@ public:
     void splitSelectedAtPlayhead();
     void deleteSelected();
     void duplicateSelected();
+    void copySelected (bool cut);
+    void pasteAtPlayhead();
+    void rippleDeleteSelected();             // delete + pull later clips left (per track)
+    void selectAll();
     void showTrackFxMenu (ValueTree track, juce::Component* target);
     void showAutomationMenu (ValueTree track, juce::Component* target);
 
@@ -86,6 +90,7 @@ private:
 
     bool rebuildPending = false, layoutPending = false;
     int lastViewY = -1, lastViewX = -1;
+    std::vector<std::pair<String, ValueTree>> clipboard;   // (track uid, clip copy)
 
     static constexpr int kHeaderW = 220;
     static constexpr int kRulerH = 30;

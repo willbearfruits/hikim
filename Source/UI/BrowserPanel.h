@@ -26,7 +26,7 @@ private:
     AudioEngine& engine;
     juce::PropertiesFile* props;
     juce::TimeSliceThread thread { "dg bin" };
-    juce::WildcardFileFilter filter { "*.wav;*.aif;*.aiff;*.flac;*.ogg;*.mp3;*.m4a", "*", "audio files" };
+    juce::WildcardFileFilter filter { "*.wav;*.aif;*.aiff;*.flac;*.ogg;*.mp3;*.m4a;*.opus;*.aac;*.wv;*.wma;*.mp2;*.amr;*.mka", "*", "audio files" };
     juce::DirectoryContentsList contents { &filter, thread };
     std::unique_ptr<juce::FileTreeComponent> tree;
     juce::TextButton folderBtn { "FOLDER..." };
