@@ -23,7 +23,7 @@ private:
     UIState& ui;
 
     juce::TextButton rtzBtn { "|<" }, playBtn { ">" }, stopBtn { "[]" }, recBtn { "REC" };
-    juce::TextButton loopBtn { "LOOP" }, punchBtn { "PUNCH" }, metroBtn { "CLICK" }, dubBtn { "OVERDUB" };
+    juce::TextButton loopBtn { "LOOP" }, metroBtn { "CLICK" }, dubBtn { "OVERDUB" };
     juce::Label posBars, posTime, bpmLabel, cpuLabel;
     juce::ComboBox snapBox;
 

@@ -52,12 +52,16 @@ ASIO: drop the Steinberg ASIO SDK in and enable `JUCE_ASIO=1` in `CMakeLists.txt
 - **Space** play/stop - **R** record - **L** loop - **S** split selected clip at playhead -
   **Del** delete clips - **Ctrl+D** duplicate - **Ctrl+Z / Ctrl+Shift+Z** undo/redo -
   **Ctrl+S** save - **Ctrl+E** export - **Ctrl+wheel** zoom.
-- Drag audio files onto the timeline to import. Right-click everything: ruler
-  (punch points, tempo/timesig changes, markers), clips, track headers, automation lanes,
-  rack knobs (macro assign / MIDI learn).
+- Drag audio files anywhere in the window to import (`.dgproj` opens, video files load
+  the video track). The **FILES** tab is a bin: browse a folder, double-click to preview,
+  drag onto the timeline. The **FX** tab is a searchable explorer (TEETH, built-in
+  instruments, plugins) — drag onto a track or double-click to hit the selected track.
+- Right-click everything: ruler (tempo/timesig changes, markers), clips, track headers,
+  automation lanes, rack knobs (macro assign / MIDI learn). Drag a header's bottom edge
+  to resize the track or lane.
 - Track header buttons: **M**ute, **S**olo, **R**ecord-arm, **MON** (off → direct dry →
   through the insert chain), **FX** (insert chain: add **TEETH**, add plugins,
-  set instrument), **A** (automation lanes).
+  set instrument — built-ins: GlitchTone, RUST, GRAVEL, HYMN), **A** (automation lanes).
 - First plugin scan: *Options → Plugin manager → Options → Scan for new...*
 - Project files are XML (`*.dgproj`); recorded audio lands in `<project>_Assets/`.
 
@@ -71,7 +75,8 @@ ever want different names: `Source/Common.h` → `dg::names::appName` / `rackNam
 
 - Time-stretch: varispeed by default; right-click a clip → *Pitch-locked stretch (RubberBand)*
   renders the stretch in the background and swaps in seamlessly. Live RT stretch is the marked slot.
-- Take comping: takes stack in lanes, "promote take" swaps lanes; no crossfade comping yet.
+- Take comping: split a take, "promote" the slice, nudge edges to overlap — overlapping
+  audible clips crossfade automatically (equal-power). Visual fade handles on overlaps are next.
 - Plugin scanning runs in-process (async, with crash blacklist); out-of-process marked.
 - Video decoding on Linux (sync logic + frame counter run everywhere; mac/win play video).
 - Stems render one pass per track; single-pass multi-writer marked.

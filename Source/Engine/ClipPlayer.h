@@ -12,7 +12,8 @@ struct AudioClipRT
     juce::int64 start = 0, length = 0;        // engine samples on the timeline
     double offset = 0;                         // source-file samples
     float gain = 1.0f;
-    juce::int64 fadeIn = 0, fadeOut = 0;       // engine samples
+    juce::int64 fadeIn = 0, fadeOut = 0;       // engine samples (manual, linear)
+    juce::int64 xfadeIn = 0, xfadeOut = 0;     // auto comp crossfades (equal-power)
     double ratio = 1.0;                        // file samples consumed per engine sample
     std::shared_ptr<juce::AudioFormatReader> reader;
     int numFileChannels = 2;

@@ -28,6 +28,13 @@ public:
     void showTrackFxMenu (ValueTree track, juce::Component* target);
     void showAutomationMenu (ValueTree track, juce::Component* target);
 
+    // import audio files; pos is in TimelineView coordinates (over the canvas =
+    // exact row + snapped time, anywhere else = playhead on a sensible track)
+    void importFiles (const juce::StringArray& files, juce::Point<int> posInView);
+
+    // "fx:rack" | "fx:builtin:<name>" | "fx:plug:<identifier>" -> insert/instrument
+    void applyFxToTrack (ValueTree track, const String& fxId);
+
     double timeToX (double sec) const  { return sec * pps; }
     double xToTime (double x) const    { return x / pps; }
     double snap (double sec) const;

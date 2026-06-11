@@ -10,6 +10,7 @@ struct UIState
 {
     int snapMode = 5;                       // index into kSnapNames
     std::set<String> selectedClips;         // clip uids
+    String selectedTrack;                   // uid; FX explorer double-click target
     std::function<void (ValueTree clip)> openPianoRoll;
     std::function<void (const String& trackUid, const String& insertUid)> openInsertEditor;
     std::function<void()> refreshAll;

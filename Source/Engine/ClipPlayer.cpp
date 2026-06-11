@@ -128,6 +128,9 @@ void ClipPlayerProcessor::renderClip (const AudioClipRT& c, juce::AudioBuffer<fl
             const juce::int64 ip = clipPos + i;
             if (c.fadeIn > 0 && ip < c.fadeIn)                       fade *= (float) ip / (float) c.fadeIn;
             if (c.fadeOut > 0 && c.length - ip < c.fadeOut)          fade *= (float) (c.length - ip) / (float) c.fadeOut;
+            // comp crossfades: equal-power so overlapping takes sum at unity
+            if (c.xfadeIn > 0 && ip < c.xfadeIn)                     fade *= std::sqrt ((float) ip / (float) c.xfadeIn);
+            if (c.xfadeOut > 0 && c.length - ip < c.xfadeOut)        fade *= std::sqrt ((float) (c.length - ip) / (float) c.xfadeOut);
             const float g = c.gain * fade;
 
             for (int ch = 0; ch < outChans; ++ch)

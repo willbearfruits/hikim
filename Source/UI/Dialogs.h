@@ -28,6 +28,10 @@ juce::Component* createPluginManagerComponent (PluginHost&);
 
 void showExportDialog (AudioEngine&, SessionModel&);
 
+// puts the file on the video track (creating it if needed); any open VideoView
+// picks the change up from the tree
+void loadVideoFile (SessionModel&, const File&);
+
 // Video window: frame-accurate playback locked to the transport on mac/win;
 // on Linux the decoder is stubbed (DG_HAVE_VIDEO=0) but the sync/offset logic
 // runs identically and shows file/timecode/frame. // EXTEND: ffmpeg/libmpv decode on Linux.
@@ -51,6 +55,7 @@ private:
     juce::ComboBox fpsBox;
     juce::Label info;
 
+    String lastLoadedFile;
    #if DG_HAVE_VIDEO
     std::unique_ptr<juce::VideoComponent> video;
     bool videoPlaying = false;

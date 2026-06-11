@@ -76,6 +76,11 @@ public:
     const RecordSession* getLiveRecording (const String& trackUid) const;
     double getRecordStartSeconds() const { return recStartSec; }
 
+    // ---- file preview (FILES bin) ----
+    void startPreview (const File&);
+    void stopPreview();
+    File getPreviewFile() const { return previewFile; }
+
     // ---- realtime master capture ----
     bool startMasterCapture (const File& f);
     void stopMasterCapture();
@@ -247,9 +252,16 @@ private:
     std::vector<std::unique_ptr<LaneListener>> laneListeners;
     std::vector<ValueTree> laneTrees;
     std::atomic<bool> applyingAutomation { false };
+    std::atomic<bool> automationActive { false };   // any read/touch lane with points
     juce::CriticalSection writeLock;
     struct WriteEvt { int laneIdx; juce::int64 t; float v; };
     std::vector<WriteEvt> writeEvents;
+
+    // file preview: a second device callback that the device manager mixes in
+    juce::AudioSourcePlayer previewPlayer;
+    juce::AudioTransportSource previewTransport;
+    std::unique_ptr<juce::AudioFormatReaderSource> previewSource;
+    File previewFile;
 
     // ui midi + capture
     juce::SpinLock uiMidiLock;

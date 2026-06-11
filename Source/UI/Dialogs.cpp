@@ -202,7 +202,7 @@ ValueTree VideoView::videoClip() const
     return {};
 }
 
-void VideoView::loadVideo (const File& f)
+void loadVideoFile (SessionModel& session, const File& f)
 {
     session.undo.beginNewTransaction ("load video");
 
@@ -226,12 +226,11 @@ void VideoView::loadVideo (const File& f)
     clips.appendChild (c, &session.undo);
 
     session.video().setProperty (id::file, f.getFullPathName(), nullptr);
+}
 
-   #if DG_HAVE_VIDEO
-    video->load (f);
-    const double dur = video->getVideoDuration();
-    if (dur > 0) c.setProperty (id::length, dur, &session.undo);
-   #endif
+void VideoView::loadVideo (const File& f)
+{
+    loadVideoFile (session, f);
 }
 
 void VideoView::timerCallback()
@@ -241,6 +240,18 @@ void VideoView::timerCallback()
     {
         info.setText ("no video loaded", juce::dontSendNotification);
         return;
+    }
+
+    // decoder follows the tree, so video dropped anywhere in the app loads here
+    if (clip[id::file].toString() != lastLoadedFile)
+    {
+        lastLoadedFile = clip[id::file].toString();
+       #if DG_HAVE_VIDEO
+        video->load (File (lastLoadedFile));
+        const double dur = video->getVideoDuration();
+        if (dur > 0 && std::abs ((double) clip[id::length] - dur) > 0.5)
+            clip.setProperty (id::length, dur, nullptr);
+       #endif
     }
 
     // A/V lock: video time = transport time - clip start (the clip on the

@@ -32,7 +32,6 @@ TransportBar::TransportBar (AudioEngine& e, SessionModel& s, UIState& u)
         addAndMakeVisible (b);
     };
     bindTransportToggle (loopBtn, id::loopOn);
-    bindTransportToggle (punchBtn, id::punchOn);
     bindTransportToggle (metroBtn, id::metro);
 
     dubBtn.setClickingTogglesState (true);
@@ -69,7 +68,6 @@ void TransportBar::updateToggleStates()
 {
     auto tr = session.transport();
     loopBtn.setToggleState ((bool) tr[id::loopOn], juce::dontSendNotification);
-    punchBtn.setToggleState ((bool) tr[id::punchOn], juce::dontSendNotification);
     metroBtn.setToggleState ((bool) tr[id::metro], juce::dontSendNotification);
 }
 
@@ -118,8 +116,6 @@ void TransportBar::resized()
     snapBox.setBounds (b.removeFromLeft (96).reduced (0, 3));
     b.removeFromLeft (10);
     loopBtn.setBounds (b.removeFromLeft (54));
-    b.removeFromLeft (2);
-    punchBtn.setBounds (b.removeFromLeft (60));
     b.removeFromLeft (2);
     metroBtn.setBounds (b.removeFromLeft (56));
     b.removeFromLeft (2);

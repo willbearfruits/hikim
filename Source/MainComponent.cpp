@@ -23,9 +23,22 @@ MainComponent::MainComponent()
 
     mixer = std::make_unique<MixerView> (*engine, session, ui);
     pianoRoll = std::make_unique<PianoRoll> (*engine, session, ui);
+    fileBin = std::make_unique<FileBin> (*engine, appProps.getUserSettings());
+    fxExplorer = std::make_unique<FxExplorer> (*pluginHost);
     bottomTabs.addTab ("MIXER", col::panel, mixer.get(), false);
     bottomTabs.addTab ("PIANO ROLL", col::panel, pianoRoll.get(), false);
+    bottomTabs.addTab ("FILES", col::panel, fileBin.get(), false);
+    bottomTabs.addTab ("FX", col::panel, fxExplorer.get(), false);
     addAndMakeVisible (bottomTabs);
+
+    fxExplorer->onApply = [this] (const String& fxId)
+    {
+        auto t = session.findTrack (ui.selectedTrack);
+        if (! t.isValid())
+            for (auto tt : session.tracks())
+                if (tt[id::type].toString() == "audio") { t = tt; break; }
+        timeline->applyFxToTrack (t, fxId);
+    };
 
     ui.openPianoRoll = [this] (ValueTree clip)
     {
@@ -175,16 +188,61 @@ void MainComponent::menuItemSelected (int itemID, int)
             pluginWin->toFront (true);
             break;
         case mVideoWindow:
-            if (videoWin == nullptr)
-            {
-                videoWin = std::make_unique<FloatingWindow> ("Video", [this] { videoWin.reset(); });
-                videoWin->setContentOwned (new VideoView (*engine, session), true);
-            }
-            videoWin->setVisible (true);
-            videoWin->toFront (true);
+            showVideoWindow();
             break;
         default: break;
     }
+}
+
+void MainComponent::showVideoWindow()
+{
+    if (videoWin == nullptr)
+    {
+        videoWin = std::make_unique<FloatingWindow> ("Video", [this] { videoWin.reset(); });
+        videoWin->setContentOwned (new VideoView (*engine, session), true);
+    }
+    videoWin->setVisible (true);
+    videoWin->toFront (true);
+}
+
+// ---------------------------------------------------------------- window-wide drops
+
+bool MainComponent::isInterestedInFileDrag (const juce::StringArray& files)
+{
+    for (const auto& f : files)
+        if (File (f).hasFileExtension ("wav;aif;aiff;flac;ogg;mp3;m4a;caf;wma;mp4;mov;avi;mkv;webm")
+            || f.endsWith (names::projectExtension))
+            return true;
+    return false;
+}
+
+void MainComponent::filesDropped (const juce::StringArray& files, int x, int y)
+{
+    juce::StringArray audio;
+    File project, video;
+    for (const auto& fpath : files)
+    {
+        const File f (fpath);
+        if (f.hasFileExtension (String (names::projectExtension).substring (1)))      project = f;
+        else if (f.hasFileExtension ("mp4;mov;avi;mkv;webm"))                          video = f;
+        else                                                                           audio.add (fpath);
+    }
+
+    if (project != File())
+    {
+        engine->stop();
+        String err;
+        if (! session.load (project, err))
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Open failed", err);
+        return;
+    }
+    if (video != File())
+    {
+        loadVideoFile (session, video);
+        showVideoWindow();
+    }
+    if (! audio.isEmpty())
+        timeline->importFiles (audio, timeline->getLocalPoint (this, juce::Point<int> (x, y)));
 }
 
 // ---------------------------------------------------------------- file ops

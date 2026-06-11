@@ -85,6 +85,28 @@ private:
     juce::Synthesiser synth;
 };
 
+// Native instruments so MIDI tracks have voices without any plugins installed:
+//   RUST   - 2-op FM bell/metal     GRAVEL - noise percussion with pitch thump
+//   HYMN   - detuned-saw pad (the sentimental one)
+class BuiltinInstrument : public BasicProcessor
+{
+public:
+    enum class Kind { rust, gravel, hymn };
+    explicit BuiltinInstrument (Kind k);
+    static std::unique_ptr<juce::AudioProcessor> create (const String& name);  // "rust" | "gravel" | "hymn"
+
+    void prepareToPlay (double sr, int blockSize) override;
+    void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    void getStateInformation (juce::MemoryBlock&) override;
+    void setStateInformation (const void*, int) override;
+
+    Kind kind;
+    juce::AudioParameterFloat *p1 = nullptr, *p2 = nullptr, *p3 = nullptr, *p4 = nullptr;
+
+private:
+    juce::Synthesiser synth;
+};
+
 // Placeholder that keeps the saved state of a plugin that failed to load,
 // passing audio through untouched. // EXTEND: offer "relink plugin" UI.
 class MissingPluginProcessor : public BasicProcessor

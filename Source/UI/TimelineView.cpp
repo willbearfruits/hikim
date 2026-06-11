@@ -30,29 +30,7 @@ public:
             g.setColour (((bool) tr[id::loopOn] ? col::accent2 : col::dim).withAlpha (0.35f));
             g.fillRect ((int) (tv.timeToX (ls)) + xOff, 0, (int) ((le - ls) * tv.pps), getHeight() / 2);
         }
-        // punch markers stay visible even when PUNCH is off (dimmed)
-        const double pi = tr[id::punchIn], po = tr[id::punchOut];
-        const bool punchEnabled = (bool) tr[id::punchOn];
-        if (pi > 0 || po > 0)
-        {
-            auto pc = punchEnabled ? col::record : col::record.withAlpha (0.4f);
-            if (po > pi)
-            {
-                g.setColour (pc.withAlpha (punchEnabled ? 0.3f : 0.12f));
-                g.fillRect ((int) (tv.timeToX (pi)) + xOff, getHeight() / 2, (int) ((po - pi) * tv.pps), getHeight() / 2);
-            }
-            g.setColour (pc);
-            g.setFont (juce::Font (juce::FontOptions (9.0f, juce::Font::bold)));
-            const int xi = (int) tv.timeToX (pi) + xOff;
-            g.drawLine ((float) xi, (float) getHeight() / 2, (float) xi, (float) getHeight(), 1.6f);
-            g.drawText ("IN", xi + 2, getHeight() / 2, 24, 10, juce::Justification::left);
-            if (po > 0)
-            {
-                const int xo = (int) tv.timeToX (po) + xOff;
-                g.drawLine ((float) xo, (float) getHeight() / 2, (float) xo, (float) getHeight(), 1.6f);
-                g.drawText ("OUT", xo - 26, getHeight() / 2, 24, 10, juce::Justification::right);
-            }
-        }
+        // (punch UI removed by owner request - engine support stays dormant)
 
         // bar ticks + labels
         g.setFont (juce::Font (juce::FontOptions (10.0f)));
@@ -134,9 +112,6 @@ public:
     void showMenu (double sec)
     {
         juce::PopupMenu m;
-        m.addItem (1, "Set punch IN here");
-        m.addItem (2, "Set punch OUT here");
-        m.addItem (7, "Clear punch");
         m.addItem (3, "Clear loop");
         m.addSeparator();
         m.addItem (4, "Insert tempo change here...");
@@ -148,23 +123,7 @@ public:
         {
             auto tr = tv.session.transport();
             auto map = tv.engine.getTempoMap();
-            if (r == 1)
-            {
-                tr.setProperty (id::punchIn, tv.snap (sec), &tv.session.undo);
-                tr.setProperty (id::punchOn, true, nullptr);    // setting a point arms punch
-            }
-            else if (r == 2)
-            {
-                tr.setProperty (id::punchOut, tv.snap (sec), &tv.session.undo);
-                tr.setProperty (id::punchOn, true, nullptr);
-            }
-            else if (r == 7)
-            {
-                tr.setProperty (id::punchIn, 0.0, nullptr);
-                tr.setProperty (id::punchOut, 0.0, nullptr);
-                tr.setProperty (id::punchOn, false, nullptr);
-            }
-            else if (r == 3) { tr.setProperty (id::loopOn, false, nullptr); tr.setProperty (id::loopEnd, 0.0, nullptr); tr.setProperty (id::loopStart, 0.0, nullptr); }
+            if (r == 3) { tr.setProperty (id::loopOn, false, nullptr); tr.setProperty (id::loopEnd, 0.0, nullptr); tr.setProperty (id::loopStart, 0.0, nullptr); }
             else if (r == 4)
             {
                 auto* w = new juce::AlertWindow ("Tempo change", "BPM at " + map->formatBarsBeats (tv.engine.secToSamples (sec)), juce::MessageBoxIconType::NoIcon);
@@ -625,6 +584,23 @@ public:
         g.drawRect (getLocalBounds());
     }
 
+    void mouseMove (const juce::MouseEvent& e) override
+    {
+        setMouseCursor (e.y > getHeight() - 6 ? juce::MouseCursor::UpDownResizeCursor
+                                              : juce::MouseCursor::NormalCursor);
+    }
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (e.y > getHeight() - 6) { resizing = true; origH = getHeight(); }
+    }
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (resizing)
+            lane.setProperty (id::height,
+                              juce::jlimit (24, 400, origH + e.getDistanceFromDragStartY()), nullptr);
+    }
+    void mouseUp (const juce::MouseEvent&) override { resizing = false; }
+
     void resized() override
     {
         auto b = getLocalBounds().reduced (4, 2);
@@ -639,6 +615,8 @@ private:
     juce::Label name;
     juce::ComboBox mode;
     juce::TextButton close;
+    bool resizing = false;
+    int origH = 0;
 };
 
 // =========================================================================== TrackHeader
@@ -715,10 +693,11 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        g.fillAll (col::panel);
+        const bool selected = tv.ui.selectedTrack == track[id::uid].toString();
+        g.fillAll (selected ? col::panelHi : col::panel);
         g.setColour (trackColour (track));
         g.fillRect (0, 0, 4, getHeight());
-        g.setColour (col::line);
+        g.setColour (selected ? col::accent.withAlpha (0.7f) : col::line);
         g.drawRect (getLocalBounds());
         const String type = track[id::type];
         if (type != "audio" && type != "midi")
@@ -729,9 +708,32 @@ public:
         }
     }
 
+    void mouseMove (const juce::MouseEvent& e) override
+    {
+        setMouseCursor (e.y > getHeight() - 6 ? juce::MouseCursor::UpDownResizeCursor
+                                              : juce::MouseCursor::NormalCursor);
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (resizing)
+            track.setProperty (id::height,
+                               juce::jlimit (28, 400, origH + e.getDistanceFromDragStartY()), nullptr);
+    }
+
+    void mouseUp (const juce::MouseEvent&) override { resizing = false; }
+
     void mouseDown (const juce::MouseEvent& e) override
     {
-        if (! e.mods.isPopupMenu()) return;
+        tv.ui.selectedTrack = track[id::uid].toString();
+        tv.repaint();
+        getParentComponent()->repaint();
+
+        if (! e.mods.isPopupMenu())
+        {
+            if (e.y > getHeight() - 6) { resizing = true; origH = getHeight(); }
+            return;
+        }
         juce::PopupMenu m;
         m.addItem (1, "Rename");
         m.addItem (2, "Change colour");
@@ -787,14 +789,46 @@ private:
     juce::Label name;
     juce::TextButton muteBtn { "M" }, soloBtn { "S" }, armBtn { "R" }, monBtn, fxBtn { "FX" }, autoBtn { "A" };
     juce::ComboBox inBox;
+    bool resizing = false;
+    int origH = 0;
 };
 
 // =========================================================================== Canvas
 class TimelineView::Canvas : public juce::Component,
-                             public juce::FileDragAndDropTarget
+                             public juce::FileDragAndDropTarget,
+                             public juce::DragAndDropTarget
 {
 public:
     explicit Canvas (TimelineView& o) : tv (o) {}
+
+    // internal drags from the FILES bin and the FX explorer
+    bool isInterestedInDragSource (const SourceDetails& d) override
+    {
+        const String desc = d.description.toString();
+        return desc == "binfiles" || desc.startsWith ("fx:");
+    }
+
+    void itemDropped (const SourceDetails& d) override
+    {
+        const String desc = d.description.toString();
+        if (desc == "binfiles")
+        {
+            if (auto* ftc = dynamic_cast<juce::FileTreeComponent*> (d.sourceComponent.get()))
+            {
+                juce::StringArray files;
+                for (int i = 0; i < ftc->getNumSelectedFiles(); ++i)
+                    files.add (ftc->getSelectedFile (i).getFullPathName());
+                tv.importFiles (files, tv.getLocalPoint (this, d.localPosition));
+            }
+            return;
+        }
+        if (desc.startsWith ("fx:"))
+        {
+            const int rowIdx = tv.rowIndexAtY (d.localPosition.y);
+            if (rowIdx >= 0 && ! tv.rows[(size_t) rowIdx].lane.isValid())
+                tv.applyFxToTrack (tv.rows[(size_t) rowIdx].track, desc);
+        }
+    }
 
     void paint (juce::Graphics& g) override
     {
@@ -841,14 +875,6 @@ public:
             g.setColour (col::accent2.withAlpha (0.05f));
             g.fillRect ((int) tv.timeToX (ls), clip.getY(), (int) ((le - ls) * tv.pps), clip.getHeight());
         }
-        if ((bool) tr[id::punchOn])
-        {
-            const double pi = tr[id::punchIn], po = tr[id::punchOut];
-            const double end = po > pi ? po : tv.xToTime (clip.getRight());   // open-ended punch
-            g.setColour (col::record.withAlpha (0.04f));
-            g.fillRect ((int) tv.timeToX (pi), clip.getY(), (int) ((end - pi) * tv.pps), clip.getHeight());
-        }
-
         // live recording: growing region + waveform on armed tracks
         if (tv.engine.isRecording())
         {
@@ -950,35 +976,14 @@ public:
     bool isInterestedInFileDrag (const juce::StringArray& files) override
     {
         for (const auto& f : files)
-            if (File (f).hasFileExtension ("wav;aif;aiff;flac;ogg;mp3"))
+            if (File (f).hasFileExtension ("wav;aif;aiff;flac;ogg;mp3;m4a;caf;wma"))
                 return true;
         return false;
     }
 
     void filesDropped (const juce::StringArray& files, int x, int y) override
     {
-        const int rowIdx = tv.rowIndexAtY (y);
-        ValueTree track;
-        if (rowIdx >= 0 && ! tv.rows[(size_t) rowIdx].lane.isValid()
-            && tv.rows[(size_t) rowIdx].track[id::type].toString() == "audio")
-            track = tv.rows[(size_t) rowIdx].track;
-        if (! track.isValid())
-            track = tv.session.addTrack ("audio", "Audio");
-
-        tv.session.undo.beginNewTransaction ("import");
-        double at = tv.snap (tv.xToTime (x));
-        for (const auto& fpath : files)
-        {
-            const File f (fpath);
-            if (auto* reader = tv.engine.formatManager.createReaderFor (f))
-            {
-                const double len = (double) reader->lengthInSamples / reader->sampleRate;
-                tv.session.addAudioClip (track, f, at, len, reader->sampleRate);
-                at += len;
-                delete reader;
-            }
-        }
-        tv.rebuild();
+        tv.importFiles (files, tv.getLocalPoint (this, juce::Point<int> (x, y)));
     }
 
 private:
@@ -1048,10 +1053,8 @@ void TimelineView::rebuild()
 
     for (auto track : session.tracks())
     {
-        const String type = track[id::type];
         Row row;
         row.track = track;
-        row.h = (type == "bus" || type == "master") ? 44 : (type == "video" ? 36 : 68);
         rows.push_back (row);
 
         auto* th = new TrackHeader (*this, track);
@@ -1071,7 +1074,6 @@ void TimelineView::rebuild()
             Row lr;
             lr.track = track;
             lr.lane = lane;
-            lr.h = 56;
             rows.push_back (lr);
 
             auto* lh = new LaneHeader (*this, track, lane);
@@ -1091,6 +1093,14 @@ void TimelineView::layoutRows()
     int y = 0;
     for (auto& row : rows)
     {
+        if (row.lane.isValid())
+            row.h = juce::jlimit (24, 400, (int) row.lane.getProperty (id::height, 56));
+        else
+        {
+            const String type = row.track[id::type];
+            const int def = (type == "bus" || type == "master") ? 44 : (type == "video" ? 36 : 68);
+            row.h = juce::jlimit (28, 400, (int) row.track.getProperty (id::height, def));
+        }
         row.y = y;
         y += row.h;
     }
@@ -1233,6 +1243,90 @@ void TimelineView::duplicateSelected()
     rebuild();
 }
 
+void TimelineView::importFiles (const juce::StringArray& files, juce::Point<int> posInView)
+{
+    auto canvasPt = canvas->getLocalPoint (this, posInView);
+    const bool overCanvas = vp.getBounds().contains (posInView);
+
+    ValueTree track;
+    double at = juce::jmax (0.0, engine.getPositionSeconds());
+
+    // header drops share the canvas row layout (same y, just offset by the ruler/scroll)
+    const int rowY = overCanvas ? canvasPt.y : posInView.y - kRulerH + vp.getViewPositionY();
+    const int rowIdx = rowIndexAtY (rowY);
+    if (rowIdx >= 0 && ! rows[(size_t) rowIdx].lane.isValid()
+        && rows[(size_t) rowIdx].track[id::type].toString() == "audio")
+        track = rows[(size_t) rowIdx].track;
+    if (overCanvas)
+        at = snap (juce::jmax (0.0, xToTime (canvasPt.x)));
+
+    session.undo.beginNewTransaction ("import");
+    if (! track.isValid())
+        track = session.addTrack ("audio", "Audio");
+
+    for (const auto& fpath : files)
+    {
+        std::unique_ptr<juce::AudioFormatReader> reader (engine.formatManager.createReaderFor (File (fpath)));
+        if (reader != nullptr)
+        {
+            const double len = (double) reader->lengthInSamples / reader->sampleRate;
+            session.addAudioClip (track, File (fpath), at, len, reader->sampleRate);
+            at += len;
+        }
+    }
+    rebuild();
+}
+
+void TimelineView::applyFxToTrack (ValueTree track, const String& fxId)
+{
+    if (! track.isValid()) return;
+    const String type = track[id::type];
+    if (type != "audio" && type != "midi" && type != "bus" && type != "master") return;
+
+    session.undo.beginNewTransaction ("add fx");
+
+    auto setInstrument = [this, &track] (const String& ident, const String& name)
+    {
+        if (track[id::type].toString() != "midi") return;
+        auto inserts = SessionModel::insertsOf (track);
+        for (int i = inserts.getNumChildren(); --i >= 0;)
+            if (inserts.getChild (i)[id::type].toString() == "instrument")
+                inserts.removeChild (i, &session.undo);
+        if (ident.isNotEmpty())
+        {
+            auto ins = session.addInsert (track, "instrument");
+            ins.setProperty (id::ident, ident, &session.undo);
+            ins.setProperty (id::name, name, &session.undo);
+        }
+    };
+
+    if (fxId == "fx:rack")
+    {
+        auto ins = session.addInsert (track, "rack");
+        ins.setProperty (id::name, names::rackName, &session.undo);
+    }
+    else if (fxId.startsWith ("fx:builtin:"))
+    {
+        const String which = fxId.fromLastOccurrenceOf (":", false, false);
+        setInstrument (which == "glitchtone" ? String() : "builtin:" + which, which.toUpperCase());
+    }
+    else if (fxId.startsWith ("fx:plug:"))
+    {
+        const String ident = fxId.fromFirstOccurrenceOf ("fx:plug:", false, false);
+        if (auto desc = plugins.findByIdentifier (ident))
+        {
+            if (desc->isInstrument && type == "midi")
+                setInstrument (ident, desc->name);
+            else
+            {
+                auto ins = session.addInsert (track, "plugin");
+                ins.setProperty (id::ident, ident, &session.undo);
+                ins.setProperty (id::name, desc->name, &session.undo);
+            }
+        }
+    }
+}
+
 // ---- track FX / automation menus -----------------------------------------
 
 void TimelineView::showTrackFxMenu (ValueTree track, juce::Component* target)
@@ -1268,7 +1362,11 @@ void TimelineView::showTrackFxMenu (ValueTree track, juce::Component* target)
     if (track[id::type].toString() == "midi")
     {
         juce::PopupMenu instMenu;
-        instMenu.addItem (2, "Built-in synth (GlitchTone)");
+        instMenu.addItem (2, "GlitchTone (default saw)");
+        instMenu.addItem (3, "RUST - FM bell/metal");
+        instMenu.addItem (4, "GRAVEL - noise percussion");
+        instMenu.addItem (5, "HYMN - detuned pad");
+        instMenu.addSeparator();
         int instId = 9000;
         juce::Array<juce::PluginDescription> instruments;
         for (const auto& d : types)
@@ -1291,12 +1389,10 @@ void TimelineView::showTrackFxMenu (ValueTree track, juce::Component* target)
             ins.setProperty (id::name, names::rackName, &session.undo);
             return;
         }
-        if (r == 2)     // built-in synth: drop hosted instrument insert
+        if (r >= 2 && r <= 5)   // built-in instruments
         {
-            auto insertsT = SessionModel::insertsOf (track);
-            for (int i = insertsT.getNumChildren(); --i >= 0;)
-                if (insertsT.getChild (i)[id::type].toString() == "instrument")
-                    insertsT.removeChild (i, &session.undo);
+            static const char* kBuiltins[] = { "glitchtone", "rust", "gravel", "hymn" };
+            applyFxToTrack (track, "fx:builtin:" + String (kBuiltins[r - 2]));
             return;
         }
         if (r >= 9000 && r < 9000 + 4096)
@@ -1453,7 +1549,7 @@ void TimelineView::timerCallback()
     else if (layoutPending)
     {
         layoutPending = false;
-        layoutCanvasChildren();
+        layoutRows();               // heights/positions may have changed
     }
 
     // scroll sync: headers track canvas Y, ruler tracks X
@@ -1476,13 +1572,16 @@ void TimelineView::timerCallback()
     ruler->repaint();
 }
 
-void TimelineView::valueTreePropertyChanged (ValueTree& tree, const Identifier&)
+void TimelineView::valueTreePropertyChanged (ValueTree& tree, const Identifier& prop)
 {
     if (tree.hasType (id::CLIP) || tree.hasType (id::LANE) || tree.hasType (id::PT)
         || tree.hasType (id::TRANSPORT) || tree.hasType (id::MARKER))
         layoutPending = true;
     else if (tree.hasType (id::TRACK))
-        rebuildPending = true;
+    {
+        if (prop == id::height) layoutPending = true;   // live resize: never rebuild mid-drag
+        else rebuildPending = true;
+    }
 }
 
 void TimelineView::valueTreeChildAdded (ValueTree& parent, ValueTree&)

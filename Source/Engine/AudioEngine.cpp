@@ -34,6 +34,8 @@ AudioEngine::AudioEngine (SessionModel& s, PluginHost& ph, juce::PropertiesFile*
     deviceManager.addAudioCallback (this);
     deviceManager.addChangeListener (this);
     deviceManager.addMidiInputDeviceCallback ({}, this);
+    previewPlayer.setSource (&previewTransport);
+    deviceManager.addAudioCallback (&previewPlayer);
 
     startTimer (1000);
     sessionReplaced();
@@ -42,6 +44,9 @@ AudioEngine::AudioEngine (SessionModel& s, PluginHost& ph, juce::PropertiesFile*
 AudioEngine::~AudioEngine()
 {
     stopTimer();
+    stopPreview();
+    deviceManager.removeAudioCallback (&previewPlayer);
+    previewPlayer.setSource (nullptr);
     deviceManager.removeMidiInputDeviceCallback ({}, this);
     deviceManager.removeAudioCallback (this);
     deviceManager.removeChangeListener (this);
@@ -455,15 +460,30 @@ void AudioEngine::instantiateInsert (const ValueTree& insert, double sr, int blo
         }
         proc = std::move (rack);
     }
-    else // hosted plugin or instrument
+    else // built-in instrument, hosted plugin, or hosted instrument
     {
         const String ident = insert[id::ident];
+        if (ident.startsWith ("builtin:"))
+        {
+            proc = BuiltinInstrument::create (ident.fromFirstOccurrenceOf ("builtin:", false, false));
+            if (proc != nullptr && insert.hasProperty (id::state))
+            {
+                juce::MemoryBlock mb;
+                if (mb.fromBase64Encoding (insert[id::state].toString()))
+                    proc->setStateInformation (mb.getData(), (int) mb.getSize());
+            }
+        }
         String error;
         std::unique_ptr<juce::AudioPluginInstance> inst;
-        if (auto desc = pluginHost.findByIdentifier (ident))
-            inst = pluginHost.createInstance (*desc, sr, blockSize, error);
+        if (proc == nullptr)
+            if (auto desc = pluginHost.findByIdentifier (ident))
+                inst = pluginHost.createInstance (*desc, sr, blockSize, error);
 
-        if (inst != nullptr)
+        if (proc != nullptr)
+        {
+            // built-in handled above
+        }
+        else if (inst != nullptr)
         {
             inst->enableAllBuses();
             if (insert.hasProperty (id::state))
@@ -602,6 +622,22 @@ void AudioEngine::updateTrackPlaylists (const ValueTree& t)
             rc.fileLength = reader->lengthInSamples;
             pl->clips.push_back (rc);
         }
+
+        // comp crossfades: any overlap between audible clips becomes an
+        // equal-power crossfade (split a take, promote the slice, nudge the
+        // edges to overlap - that's the comp)
+        std::sort (pl->clips.begin(), pl->clips.end(),
+                   [] (const AudioClipRT& a, const AudioClipRT& b) { return a.start < b.start; });
+        for (size_t i = 0; i < pl->clips.size(); ++i)
+            for (size_t j = i + 1; j < pl->clips.size(); ++j)
+            {
+                auto& a = pl->clips[i];
+                auto& b = pl->clips[j];
+                if (b.start >= a.start + a.length) break;
+                const juce::int64 overlap = juce::jmin (a.start + a.length - b.start, b.length, a.length);
+                a.xfadeOut = juce::jmax (a.xfadeOut, overlap);
+                b.xfadeIn  = juce::jmax (b.xfadeIn, overlap);
+            }
         auto* src = static_cast<ClipPlayerProcessor*> (tn.source->getProcessor());
         // keep the old snapshot alive message-side so the audio thread never
         // holds the last reference (readers must not be destroyed on the audio thread)
@@ -793,6 +829,12 @@ void AudioEngine::rebuildAutomation()
             laneListeners.push_back (std::make_unique<LaneListener> (*this, laneIdx, param, lanes->back().touching));
         }
     }
+
+    bool anyActive = false;
+    for (const auto& l : *lanes)
+        if ((l.mode == 1 || l.mode == 2) && ! l.pts.empty())
+            anyActive = true;
+    automationActive = anyActive;
 
     juce::SpinLock::ScopedLockType sl (laneLock);
     laneGraveyard.push_back (pendingLanes);
@@ -1252,6 +1294,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* input, i
                 for (juce::int64 p : { punchInS.load(), punchOutS.load() })
                     if (pos < p && p < pos + len)
                         len = (int) (p - pos);
+            if (automationActive.load())
+                len = juce::jmin (len, 256);    // <=5ms automation resolution at 48k
+            // EXTEND: per-sample automation ramps inside the parameters themselves
         }
 
         setPlayheadAtomics (pos, playing);
@@ -1353,6 +1398,29 @@ void AudioEngine::renderMetronome (juce::AudioBuffer<float>& buf, const TempoMap
     }
 }
 
+// ============================================================ preview
+
+void AudioEngine::startPreview (const File& f)
+{
+    stopPreview();
+    if (auto* reader = formatManager.createReaderFor (f))
+    {
+        previewSource = std::make_unique<juce::AudioFormatReaderSource> (reader, true);
+        previewTransport.setSource (previewSource.get(), 1 << 15, &diskThread, reader->sampleRate);
+        previewTransport.setPosition (0.0);
+        previewTransport.start();
+        previewFile = f;
+    }
+}
+
+void AudioEngine::stopPreview()
+{
+    previewTransport.stop();
+    previewTransport.setSource (nullptr);
+    previewSource.reset();
+    previewFile = File();
+}
+
 // ============================================================ capture & offline
 
 bool AudioEngine::startMasterCapture (const File& f)
@@ -1404,11 +1472,23 @@ void AudioEngine::beginOffline (double sr, int blockSize)
 
 void AudioEngine::processOffline (juce::AudioBuffer<float>& buf, juce::int64 posSamples)
 {
-    setPlayheadAtomics (posSamples, true);
-    applyAutomation (posSamples);
     buf.clear();
-    juce::MidiBuffer mb;
-    graph.processBlock (buf, mb);
+    const int n = buf.getNumSamples();
+    const int chans = buf.getNumChannels();
+    const int step = automationActive.load() ? 256 : n;
+
+    for (int done = 0; done < n; done += step)
+    {
+        const int len = juce::jmin (step, n - done);
+        setPlayheadAtomics (posSamples + done, true);
+        applyAutomation (posSamples + done);
+        float* ptrs[8];
+        for (int ch = 0; ch < juce::jmin (8, chans); ++ch)
+            ptrs[ch] = buf.getWritePointer (ch) + done;
+        juce::AudioBuffer<float> sub (ptrs, juce::jmin (8, chans), len);
+        juce::MidiBuffer mb;
+        graph.processBlock (sub, mb);
+    }
 }
 
 void AudioEngine::endOffline()

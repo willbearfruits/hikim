@@ -7,6 +7,7 @@
 #include "UI/MixerView.h"
 #include "UI/PianoRoll.h"
 #include "UI/Dialogs.h"
+#include "UI/BrowserPanel.h"
 
 namespace dg
 {
@@ -14,6 +15,8 @@ namespace dg
 class MainComponent : public juce::Component,
                       public juce::MenuBarModel,
                       public juce::KeyListener,
+                      public juce::FileDragAndDropTarget,
+                      public juce::DragAndDropContainer,
                       private juce::Timer
 {
 public:
@@ -30,6 +33,10 @@ public:
 
     // KeyListener (attached to the top-level window)
     bool keyPressed (const juce::KeyPress&, juce::Component*) override;
+
+    // window-wide drops: audio anywhere, .dgproj opens, video loads the video track
+    bool isInterestedInFileDrag (const juce::StringArray&) override;
+    void filesDropped (const juce::StringArray&, int x, int y) override;
 
     std::function<void (const String&)> updateTitle;
 
@@ -53,6 +60,7 @@ private:
     void doSave (bool saveAs);
     void refreshTitle();
     void openInsertEditor (const String& trackUid, const String& insertUid);
+    void showVideoWindow();
     void timerCallback() override;
 
     std::unique_ptr<TransportBar> transportBar;
@@ -60,6 +68,8 @@ private:
     juce::TabbedComponent bottomTabs { juce::TabbedButtonBar::TabsAtTop };
     std::unique_ptr<MixerView> mixer;
     std::unique_ptr<PianoRoll> pianoRoll;
+    std::unique_ptr<FileBin> fileBin;
+    std::unique_ptr<FxExplorer> fxExplorer;
 
     std::unique_ptr<FloatingWindow> settingsWin, pluginWin, videoWin;
     std::map<String, std::unique_ptr<FloatingWindow>> editorWindows;   // by insert uid

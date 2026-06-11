@@ -21,7 +21,7 @@ namespace dg::id
     DG_ID (gain)      DG_ID (pan)       DG_ID (mute)     DG_ID (solo)
     DG_ID (armed)     DG_ID (monitor)   DG_ID (inputChan) DG_ID (inputStereo)
     DG_ID (outputBus) DG_ID (sendABus)  DG_ID (sendALevel)
-    DG_ID (sendBBus)  DG_ID (sendBLevel)
+    DG_ID (sendBBus)  DG_ID (sendBLevel) DG_ID (height)
 
     // clip props (start/length/offset in engine samples; midi notes in beats)
     DG_ID (start)     DG_ID (length)    DG_ID (offset)   DG_ID (file)
