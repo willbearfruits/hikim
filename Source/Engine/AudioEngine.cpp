@@ -1,6 +1,7 @@
 #include "AudioEngine.h"
 #include "../Plugins/PluginHost.h"
 #include "../Rack/RackProcessor.h"
+#include "../Patcher/PatcherProcessor.h"
 
 namespace dg
 {
@@ -488,16 +489,18 @@ void AudioEngine::instantiateInsert (const ValueTree& insert, double sr, int blo
     const String type = insert[id::type];
     std::unique_ptr<juce::AudioProcessor> proc;
 
-    if (type == "rack")
+    if (type == "rack" || type == "patcher")
     {
-        auto rack = std::make_unique<RackProcessor>();
+        std::unique_ptr<juce::AudioProcessor> native;
+        if (type == "rack") native = std::make_unique<RackProcessor>();
+        else native = std::make_unique<PatcherProcessor>();
         if (insert.hasProperty (id::state))
         {
             juce::MemoryBlock mb;
             if (mb.fromBase64Encoding (insert[id::state].toString()))
-                rack->setStateInformation (mb.getData(), (int) mb.getSize());
+                native->setStateInformation (mb.getData(), (int) mb.getSize());
         }
-        proc = std::move (rack);
+        proc = std::move (native);
     }
     else // built-in instrument, hosted plugin, or hosted instrument
     {

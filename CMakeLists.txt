@@ -54,6 +54,8 @@ target_sources(dawglitch PRIVATE
     Source/Rack/RackModules.cpp
     Source/Rack/RackProcessor.cpp
     Source/Rack/RackEditor.cpp
+    Source/Patcher/PatcherProcessor.cpp
+    Source/Patcher/PatcherEditor.cpp
     Source/UI/Look.cpp
     Source/UI/TransportBar.cpp
     Source/UI/TimelineView.cpp
@@ -124,6 +126,7 @@ target_link_libraries(dawglitch PRIVATE
     juce::juce_audio_processors
     juce::juce_dsp
     juce::juce_gui_extra
+    juce::juce_osc
     PUBLIC
     juce::juce_recommended_config_flags
     juce::juce_recommended_lto_flags)
@@ -141,7 +144,9 @@ target_sources(ruin_tests PRIVATE
     Source/Engine/StretchCache.cpp
     Source/Rack/RackModules.cpp
     Source/Rack/RackProcessor.cpp
-    Source/Rack/RackEditor.cpp)
+    Source/Rack/RackEditor.cpp
+    Source/Patcher/PatcherProcessor.cpp
+    Source/Patcher/PatcherEditor.cpp)
 target_include_directories(ruin_tests PRIVATE Source)
 target_compile_definitions(ruin_tests PRIVATE
     JUCE_WEB_BROWSER=0
@@ -164,4 +169,5 @@ target_link_libraries(ruin_tests PRIVATE
     juce::juce_audio_processors
     juce::juce_dsp
     juce::juce_gui_extra
+    juce::juce_osc
     juce::juce_recommended_config_flags)

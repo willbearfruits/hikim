@@ -6,6 +6,7 @@ namespace dg::names
 {
     static constexpr const char* appName  = "RUIN";
     static constexpr const char* rackName = "TEETH";
+    static constexpr const char* patcherName = "WIRES";
     static constexpr const char* projectExtension = ".dgproj";
 }
 

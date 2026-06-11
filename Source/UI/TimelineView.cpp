@@ -1436,6 +1436,11 @@ void TimelineView::applyFxToTrack (ValueTree track, const String& fxId)
         auto ins = session.addInsert (track, "rack");
         ins.setProperty (id::name, names::rackName, &session.undo);
     }
+    else if (fxId == "fx:patcher")
+    {
+        auto ins = session.addInsert (track, "patcher");
+        ins.setProperty (id::name, names::patcherName, &session.undo);
+    }
     else if (fxId.startsWith ("fx:builtin:"))
     {
         const String which = fxId.fromLastOccurrenceOf (":", false, false);
@@ -1484,6 +1489,7 @@ void TimelineView::showTrackFxMenu (ValueTree track, juce::Component* target)
     }
     if (idx > 0) m.addSeparator();
     m.addItem (1, String ("Add ") + names::rackName);
+    m.addItem (8, String ("Add ") + names::patcherName + " (patcher)");
 
     juce::PopupMenu pluginMenu;
     auto types = plugins.knownList.getTypes();
@@ -1519,6 +1525,12 @@ void TimelineView::showTrackFxMenu (ValueTree track, juce::Component* target)
         {
             auto ins = session.addInsert (track, "rack");
             ins.setProperty (id::name, names::rackName, &session.undo);
+            return;
+        }
+        if (r == 8)
+        {
+            auto ins = session.addInsert (track, "patcher");
+            ins.setProperty (id::name, names::patcherName, &session.undo);
             return;
         }
         if (r >= 2 && r <= 6)   // built-in instruments

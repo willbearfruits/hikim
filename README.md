@@ -76,6 +76,12 @@ ASIO: drop the Steinberg ASIO SDK in and enable `JUCE_ASIO=1` in `CMakeLists.txt
 - **Double-click any audio clip** (arrange or session) → the **SAMPLE** tab: full-file
   waveform with the used region highlighted — slide it, trim either edge, gain/fades,
   pitch-lock, conform-to-tempo, preview. Double-click MIDI clips → piano roll, as ever.
+- **WIRES** (FX menu → *Add WIRES*): a Max-style patcher as a device. Double-click the
+  canvas, type an object (`osc~ 220`, `lores~ 800 0.7`, `delay~ 250 0.6`...), cable
+  outlets (bottom) to inlets (top). Objects: adc~ dac~ osc~ phasor~ noise~ lfo~ *~ +~
+  lores~ hipass~ delay~ tanh~ sah~ env~ metro random scale sig param oscin oscout.
+  `param N` surfaces knobs P1-8 (automatable + PATCH-moddable); `oscin/oscout` talk
+  OSC (SuperCollider bridge). Feedback is legal through delay~.
 - **CHAIN** tab: the selected track's devices as boxes (power, edit, reorder, remove;
   TEETH boxes carry live macro knobs). **PATCH** tab: the modulation bay — drag cables
   from LFOs / CHAOS (Lorenz) / FOLLOW (envelope follower) onto any parameter

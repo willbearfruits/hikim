@@ -10,6 +10,7 @@
 #include "../Source/Engine/StretchCache.h"
 #include "../Source/Engine/Analysis.h"
 #include "../Source/Rack/RackProcessor.h"
+#include "../Source/Patcher/PatcherProcessor.h"
 
 using namespace dg;
 
@@ -335,6 +336,83 @@ struct InstrumentTests : juce::UnitTest
     }
 };
 
+// =========================================================================== patcher
+
+struct PatcherTests : juce::UnitTest
+{
+    PatcherTests() : UnitTest ("WIRES") {}
+    void runTest() override
+    {
+        beginTest ("default patch (adc~ -> dac~) is passthrough");
+        PatcherProcessor p;
+        p.setPlayConfigDetails (2, 2, 48000.0, 256);
+        p.prepareToPlay (48000.0, 256);
+        juce::AudioBuffer<float> buf (2, 256), ref (2, 256);
+        juce::Random rng (7);
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < 256; ++i)
+                buf.setSample (ch, i, rng.nextFloat() - 0.5f);
+        ref.makeCopyOf (buf);
+        juce::MidiBuffer midi;
+        p.processBlock (buf, midi);
+        for (int i = 0; i < 256; ++i)
+            if (std::abs (buf.getSample (0, i) - ref.getSample (0, i)) > 1.0e-6f)
+            { expect (false, "not passthrough"); break; }
+        expect (true);
+
+        beginTest ("osc~ -> dac~ makes a sine");
+        PatcherProcessor p2;
+        p2.setPlayConfigDetails (2, 2, 48000.0, 256);
+        auto oscNode = p2.addNode ("osc~ 220", 10, 10);
+        ValueTree dacNode;
+        for (const auto& n : p2.patch)
+            if (n[id::type].toString() == "dac~") dacNode = n;
+        p2.addCable (oscNode[id::uid].toString(), 0, dacNode[id::uid].toString(), 0);
+        p2.prepareToPlay (48000.0, 256);
+        juce::AudioBuffer<float> b2 (2, 256);
+        float peak = 0;
+        for (int k = 0; k < 8; ++k)
+        {
+            b2.clear();
+            p2.processBlock (b2, midi);
+            peak = juce::jmax (peak, b2.getMagnitude (0, 0, 256));
+        }
+        expect (peak > 0.5f && peak <= 1.01f, "sine present: " + String (peak));
+
+        beginTest ("delay~ feedback stays bounded");
+        PatcherProcessor p3;
+        p3.setPlayConfigDetails (2, 2, 48000.0, 256);
+        auto noiseN = p3.addNode ("noise~", 0, 0);
+        auto delayN = p3.addNode ("delay~ 80 0.9", 0, 0);
+        ValueTree dac3;
+        for (const auto& n : p3.patch)
+            if (n[id::type].toString() == "dac~") dac3 = n;
+        p3.addCable (noiseN[id::uid].toString(), 0, delayN[id::uid].toString(), 0);
+        p3.addCable (delayN[id::uid].toString(), 0, dac3[id::uid].toString(), 0);
+        p3.prepareToPlay (48000.0, 256);
+        juce::AudioBuffer<float> b3 (2, 256);
+        bool ok = true;
+        for (int k = 0; k < 400 && ok; ++k)
+        {
+            b3.clear();
+            p3.processBlock (b3, midi);
+            for (int i = 0; i < 256 && ok; ++i)
+                ok = std::isfinite (b3.getSample (0, i)) && std::abs (b3.getSample (0, i)) < 30.0f;
+        }
+        expect (ok, "feedback bounded");
+
+        beginTest ("state roundtrip preserves the patch");
+        juce::MemoryBlock state;
+        p2.getStateInformation (state);
+        PatcherProcessor p4;
+        p4.setStateInformation (state.getData(), (int) state.getSize());
+        int oscCount = 0;
+        for (const auto& n : p4.patch)
+            if (n[id::type].toString() == "osc~") ++oscCount;
+        expectEquals (oscCount, 1);
+    }
+};
+
 // =========================================================================== analysis
 
 struct AnalysisTests : juce::UnitTest
@@ -428,6 +506,7 @@ static ClipOpsTests clipOpsTests;
 static CrossfadeTests crossfadeTests;
 static RackTests rackTests;
 static InstrumentTests instrumentTests;
+static PatcherTests patcherTests;
 static AnalysisTests analysisTests;
 static StretchTests stretchTests;
 

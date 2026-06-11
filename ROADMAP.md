@@ -23,9 +23,12 @@ sentimental side — or the machinery both stand on.
 
 ## The Live/Max build-out (owner-approved phases)
 
-- **Phase B - PATCHER device**: Max-style object patcher as an insert device
-  (osc~, line~, noise~, filters, math, delay~, S&H, metro, random, OSC in/out);
-  movable boxes everywhere, patches saved in the chain.
+- **Phase A - SESSION view**: DONE (launch grid, follow/tracker mode, slot
+  waveforms, BPM detect/conform).
+- **Phase B - WIRES patcher**: DONE (21 objects incl. osc~/lores~/delay~ with
+  feedback, sah~, metro, param P1-8 host bridge, OSC in/out; Max-style canvas,
+  patches saved as device state). EXTEND: midiin objects, abstractions,
+  more objects on request - each is a small diff now.
 - **Phase C - capture & glue**: record into session slots, capture the session jam
   into the arrangement, drag clips between views, patcher objects as host mod sources.
 - **Phase D - the Jitter-shaped thing**: character-matrix visual objects rendering

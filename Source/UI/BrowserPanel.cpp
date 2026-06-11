@@ -96,6 +96,8 @@ void FxExplorer::refresh()
 
     if (matches (names::rackName))
         entries.push_back ({ String (names::rackName) + "  - corruption rack", "fx:rack" });
+    if (matches (names::patcherName))
+        entries.push_back ({ String (names::patcherName) + "  - patcher (max-style objects)", "fx:patcher" });
 
     entries.push_back ({ "BUILT-IN INSTRUMENTS", {}, true });
     if (matches ("glitchtone")) entries.push_back ({ "GlitchTone  - default saw", "fx:builtin:glitchtone" });
