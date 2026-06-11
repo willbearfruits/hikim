@@ -11,6 +11,7 @@
 #include "UI/ChainPanel.h"
 #include "UI/PatchView.h"
 #include "UI/SessionGrid.h"
+#include "UI/SampleEditor.h"
 
 namespace dg
 {
@@ -78,6 +79,8 @@ private:
     std::unique_ptr<FxExplorer> fxExplorer;
     std::unique_ptr<ChainPanel> chainPanel;
     std::unique_ptr<PatchView> patchView;
+    std::unique_ptr<SampleEditor> sampleEditor;
+    void selectTab (const String& name);
 
     std::unique_ptr<FloatingWindow> settingsWin, pluginWin, videoWin;
     std::map<String, std::unique_ptr<FloatingWindow>> editorWindows;   // by insert uid

@@ -359,8 +359,11 @@ void SessionGrid::mouseDoubleClick (const juce::MouseEvent& e)
 {
     auto c = cellAt (e.getPosition());
     auto clip = clipFor (c.col, c.row);
-    if (clip.isValid() && clip[id::type].toString() == "midi" && ui.openPianoRoll)
+    if (! clip.isValid()) return;
+    if (clip[id::type].toString() == "midi" && ui.openPianoRoll)
         ui.openPianoRoll (clip);
+    else if (clip[id::type].toString() == "audio" && ui.openSampleEditor)
+        ui.openSampleEditor (clip);
 }
 
 void SessionGrid::launchScene (int row)

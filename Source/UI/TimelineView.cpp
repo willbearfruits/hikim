@@ -387,6 +387,8 @@ public:
     {
         if (clip[id::type].toString() == "midi" && tv.ui.openPianoRoll)
             tv.ui.openPianoRoll (clip);
+        else if (clip[id::type].toString() == "audio" && tv.ui.openSampleEditor)
+            tv.ui.openSampleEditor (clip);
     }
 
     void showMenu()

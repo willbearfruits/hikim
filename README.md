@@ -73,6 +73,9 @@ ASIO: drop the Steinberg ASIO SDK in and enable `JUCE_ASIO=1` in `CMakeLists.txt
 - Right-click everything: ruler (tempo/timesig changes, markers), clips, track headers,
   automation lanes, rack knobs (macro assign / MIDI learn). Drag a header's bottom edge
   to resize the track or lane.
+- **Double-click any audio clip** (arrange or session) → the **SAMPLE** tab: full-file
+  waveform with the used region highlighted — slide it, trim either edge, gain/fades,
+  pitch-lock, conform-to-tempo, preview. Double-click MIDI clips → piano roll, as ever.
 - **CHAIN** tab: the selected track's devices as boxes (power, edit, reorder, remove;
   TEETH boxes carry live macro knobs). **PATCH** tab: the modulation bay — drag cables
   from LFOs / CHAOS (Lorenz) / FOLLOW (envelope follower) onto any parameter

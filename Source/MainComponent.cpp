@@ -32,10 +32,12 @@ MainComponent::MainComponent()
     fxExplorer = std::make_unique<FxExplorer> (*pluginHost);
     chainPanel = std::make_unique<ChainPanel> (*engine, session, ui);
     patchView = std::make_unique<PatchView> (*engine, session, ui);
+    sampleEditor = std::make_unique<SampleEditor> (*engine, session, ui);
     bottomTabs.addTab ("MIXER", col::panel, mixer.get(), false);
     bottomTabs.addTab ("CHAIN", col::panel, chainPanel.get(), false);
     bottomTabs.addTab ("PATCH", col::panel, patchView.get(), false);
     bottomTabs.addTab ("PIANO ROLL", col::panel, pianoRoll.get(), false);
+    bottomTabs.addTab ("SAMPLE", col::panel, sampleEditor.get(), false);
     bottomTabs.addTab ("FILES", col::panel, fileBin.get(), false);
     bottomTabs.addTab ("FX", col::panel, fxExplorer.get(), false);
     addAndMakeVisible (bottomTabs);
@@ -57,7 +59,12 @@ MainComponent::MainComponent()
     ui.openPianoRoll = [this] (ValueTree clip)
     {
         pianoRoll->setClip (clip);
-        bottomTabs.setCurrentTabIndex (1);
+        selectTab ("PIANO ROLL");
+    };
+    ui.openSampleEditor = [this] (ValueTree clip)
+    {
+        sampleEditor->setClip (clip);
+        selectTab ("SAMPLE");
     };
     ui.openInsertEditor = [this] (const String& trackUid, const String& insertUid)
     {
@@ -263,6 +270,14 @@ void MainComponent::filesDropped (const juce::StringArray& files, int x, int y)
 }
 
 // ---------------------------------------------------------------- file ops
+
+void MainComponent::selectTab (const String& name)
+{
+    const auto names = bottomTabs.getTabNames();
+    const int idx = names.indexOf (name);
+    if (idx >= 0)
+        bottomTabs.setCurrentTabIndex (idx);
+}
 
 void MainComponent::toggleView()
 {
