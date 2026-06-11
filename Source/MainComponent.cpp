@@ -22,7 +22,9 @@ MainComponent::MainComponent()
     addAndMakeVisible (*timeline);
 
     sessionGrid = std::make_unique<SessionGrid> (*engine, session, ui);
-    addChildComponent (*sessionGrid);          // Tab flips Session <-> Arrange
+    addChildComponent (*sessionGrid);          // Tab / V / transport button flips views
+    transportBar->onToggleView = [this] { toggleView(); };
+    transportBar->setViewLabel ("SESSION");
 
     mixer = std::make_unique<MixerView> (*engine, session, ui);
     pianoRoll = std::make_unique<PianoRoll> (*engine, session, ui);
@@ -262,6 +264,13 @@ void MainComponent::filesDropped (const juce::StringArray& files, int x, int y)
 
 // ---------------------------------------------------------------- file ops
 
+void MainComponent::toggleView()
+{
+    showSession = ! showSession;
+    transportBar->setViewLabel (showSession ? "ARRANGE" : "SESSION");   // the button names the destination
+    resized();
+}
+
 void MainComponent::doNew()
 {
     engine->stop();
@@ -342,8 +351,7 @@ bool MainComponent::keyPressed (const juce::KeyPress& k, juce::Component* origin
 
     if (kc == juce::KeyPress::tabKey || is ('V'))
     {
-        showSession = ! showSession;
-        resized();
+        toggleView();
         return true;
     }
     if (kc == juce::KeyPress::spaceKey) { engine->togglePlayStop(); return true; }

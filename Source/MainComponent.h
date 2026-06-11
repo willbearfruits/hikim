@@ -58,6 +58,7 @@ private:
         mAudioSettings, mPluginManager, mVideoWindow
     };
 
+    void toggleView();
     void doNew();
     void doOpen();
     void doSave (bool saveAs);

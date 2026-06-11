@@ -98,7 +98,22 @@ void SessionGrid::paint (juce::Graphics& g)
     // top bar label
     g.setColour (col::dim);
     g.setFont (juce::Font (juce::FontOptions (11.0f)));
-    g.drawText ("SESSION  -  Tab flips to the arrangement", 8, 0, 400, kBarH, juce::Justification::centredLeft);
+    g.drawText ("SESSION  -  Tab / V / the SESSION button flips views", 8, 0, 400, kBarH, juce::Justification::centredLeft);
+
+    // drop-target highlight while dragging files over the grid
+    if (dragActive && dragHover.x >= 0)
+    {
+        auto r = cellRect (dragHover.x, dragHover.y);
+        g.setColour (col::accent.withAlpha (0.25f));
+        g.fillRoundedRectangle (r.toFloat(), 3.0f);
+        g.setColour (col::accent);
+        g.drawRoundedRectangle (r.toFloat(), 3.0f, 2.0f);
+        if (dragHover.x >= (int) tracks.size())
+        {
+            g.setFont (juce::Font (juce::FontOptions (10.0f, juce::Font::bold)));
+            g.drawText ("NEW TRACK", r, juce::Justification::centred);
+        }
+    }
 
     // track headers
     for (int colIdx = 0; colIdx < (int) tracks.size(); ++colIdx)
@@ -348,40 +363,114 @@ void SessionGrid::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWhee
     repaint();
 }
 
+int SessionGrid::dropColumnAt (int x) const
+{
+    if (x < kSceneW) return -1;
+    const int col = (x - kSceneW + scrollX) / kColW;
+    const int n = (int) gridTracks().size();
+    return col >= 0 && col <= n ? col : -1;     // == n means "make a new audio track"
+}
+
+int SessionGrid::dropRowAt (int y) const
+{
+    if (y < kBarH + kHeadH) return -1;
+    return (y - kBarH - kHeadH + scrollY) / kRowH;
+}
+
+void SessionGrid::updateDragHover (juce::Point<int> pos)
+{
+    dragActive = true;
+    const int col = dropColumnAt (pos.x);
+    const int row = dropRowAt (pos.y);
+    const auto tracks = gridTracks();
+    // highlight only valid targets: audio columns or the "new track" lane
+    const bool ok = col >= 0 && row >= 0
+                    && (col == (int) tracks.size()
+                        || tracks[(size_t) col][id::type].toString() == "audio");
+    dragHover = ok ? juce::Point<int> (col, row) : juce::Point<int> (-1, -1);
+    repaint();
+}
+
 bool SessionGrid::isInterestedInFileDrag (const juce::StringArray& files)
 {
     for (const auto& f : files)
-        if (File (f).hasFileExtension ("wav;aif;aiff;flac;ogg;mp3;m4a;opus;aac;wv;wma"))
+        if (File (f).hasFileExtension ("wav;aif;aiff;flac;ogg;mp3;m4a;opus;aac;wv;wma;mp2;amr;mka;caf"))
             return true;
     return false;
 }
 
+void SessionGrid::fileDragMove (const juce::StringArray&, int x, int y) { updateDragHover ({ x, y }); }
+void SessionGrid::fileDragExit (const juce::StringArray&)               { dragActive = false; dragHover = { -1, -1 }; repaint(); }
+
 void SessionGrid::filesDropped (const juce::StringArray& files, int x, int y)
 {
-    auto c = cellAt ({ x, y });
-    const auto tracks = gridTracks();
-    if (c.col < 0 || c.row < 0) return;
-    auto track = tracks[(size_t) c.col];
-    if (track[id::type].toString() != "audio") return;
-    auto scene = session.scenes().getChild (c.row);
-    if (! scene.isValid()) return;
+    dropFiles (files, { x, y });
+}
 
-    auto reader = engine.createAnyReader (File (files[0]));
-    if (reader == nullptr) return;
+bool SessionGrid::isInterestedInDragSource (const SourceDetails& d)
+{
+    return d.description.toString() == "binfiles";
+}
 
-    session.undo.beginNewTransaction ("drop slot clip");
-    ValueTree clip (id::CLIP);
-    clip.setProperty (id::uid, SessionModel::newUID(), nullptr);
-    clip.setProperty (id::type, "audio", nullptr);
-    clip.setProperty (id::name, File (files[0]).getFileNameWithoutExtension(), nullptr);
-    clip.setProperty (id::file, File (files[0]).getFullPathName(), nullptr);
-    clip.setProperty (id::fileSR, reader->sampleRate, nullptr);
-    clip.setProperty (id::start, 0.0, nullptr);
-    clip.setProperty (id::length, (double) reader->lengthInSamples / reader->sampleRate, nullptr);
-    clip.setProperty (id::offset, 0.0, nullptr);
-    clip.setProperty (id::clipGain, 0.0, nullptr);
-    clip.setProperty (id::stretch, 1.0, nullptr);
-    session.setSlotClip (track, scene[id::uid].toString(), clip);
+void SessionGrid::itemDragMove (const SourceDetails& d) { updateDragHover (d.localPosition); }
+void SessionGrid::itemDragExit (const SourceDetails&)   { dragActive = false; dragHover = { -1, -1 }; repaint(); }
+
+void SessionGrid::itemDropped (const SourceDetails& d)
+{
+    if (auto* ftc = dynamic_cast<juce::FileTreeComponent*> (d.sourceComponent.get()))
+    {
+        juce::StringArray files;
+        for (int i = 0; i < ftc->getNumSelectedFiles(); ++i)
+            files.add (ftc->getSelectedFile (i).getFullPathName());
+        dropFiles (files, d.localPosition);
+    }
+}
+
+void SessionGrid::dropFiles (const juce::StringArray& files, juce::Point<int> pos)
+{
+    dragActive = false;
+    dragHover = { -1, -1 };
+
+    const int col = dropColumnAt (pos.x);
+    int row = dropRowAt (pos.y);
+    if (col < 0 || row < 0) { repaint(); return; }
+
+    auto tracks = gridTracks();
+    session.undo.beginNewTransaction ("drop slot clips");
+
+    ValueTree track;
+    if (col >= (int) tracks.size())
+        track = session.addTrack ("audio", "Audio " + String (session.tracks().getNumChildren()));
+    else
+    {
+        track = tracks[(size_t) col];
+        if (track[id::type].toString() != "audio") { repaint(); return; }
+    }
+
+    // multiple files fill consecutive scenes downward, growing scene rows as needed
+    for (const auto& fpath : files)
+    {
+        auto reader = engine.createAnyReader (File (fpath));
+        if (reader == nullptr) continue;
+
+        while (row >= session.scenes().getNumChildren())
+            session.addScene ("Scene " + String (session.scenes().getNumChildren() + 1));
+        auto scene = session.scenes().getChild (row);
+
+        ValueTree clip (id::CLIP);
+        clip.setProperty (id::uid, SessionModel::newUID(), nullptr);
+        clip.setProperty (id::type, "audio", nullptr);
+        clip.setProperty (id::name, File (fpath).getFileNameWithoutExtension(), nullptr);
+        clip.setProperty (id::file, File (fpath).getFullPathName(), nullptr);
+        clip.setProperty (id::fileSR, reader->sampleRate, nullptr);
+        clip.setProperty (id::start, 0.0, nullptr);
+        clip.setProperty (id::length, (double) reader->lengthInSamples / reader->sampleRate, nullptr);
+        clip.setProperty (id::offset, 0.0, nullptr);
+        clip.setProperty (id::clipGain, 0.0, nullptr);
+        clip.setProperty (id::stretch, 1.0, nullptr);
+        session.setSlotClip (track, scene[id::uid].toString(), clip);
+        ++row;
+    }
     repaint();
 }
 

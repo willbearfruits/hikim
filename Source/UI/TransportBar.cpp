@@ -18,7 +18,9 @@ TransportBar::TransportBar (AudioEngine& e, SessionModel& s, UIState& u)
     playBtn.onClick = [this] { engine.play(); };
     stopBtn.onClick = [this] { engine.stop(); };
     recBtn.onClick = [this] { engine.toggleRecord(); };
-    for (auto* b : { &rtzBtn, &playBtn, &stopBtn, &recBtn })
+    viewBtn.onClick = [this] { if (onToggleView) onToggleView(); };
+    viewBtn.setColour (juce::TextButton::buttonColourId, col::accent.darker (0.55f));
+    for (auto* b : { &rtzBtn, &playBtn, &stopBtn, &recBtn, &viewBtn })
         addAndMakeVisible (*b);
 
     auto bindTransportToggle = [this] (juce::TextButton& b, const Identifier& prop)
@@ -107,7 +109,9 @@ void TransportBar::resized()
     stopBtn.setBounds (b.removeFromLeft (44));
     b.removeFromLeft (2);
     recBtn.setBounds (b.removeFromLeft (48));
-    b.removeFromLeft (10);
+    b.removeFromLeft (8);
+    viewBtn.setBounds (b.removeFromLeft (84));
+    b.removeFromLeft (8);
     posBars.setBounds (b.removeFromLeft (130));
     posTime.setBounds (b.removeFromLeft (110));
     b.removeFromLeft (6);
