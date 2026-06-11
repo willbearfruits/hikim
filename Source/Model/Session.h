@@ -26,6 +26,13 @@ public:
     ValueTree markers()    const { return root.getChildWithName (id::MARKERS); }
     ValueTree video()      const { return root.getChildWithName (id::VIDEO); }
     ValueTree mods()       const { ValueTree r = root; return r.getOrCreateChildWithName (id::MODS, nullptr); }
+    ValueTree scenes()     const { ValueTree r = root; return r.getOrCreateChildWithName (id::SCENES, nullptr); }
+
+    // ---- session view (launch grid) ----
+    ValueTree addScene (const String& name);
+    static ValueTree slotsOf (ValueTree track) { return track.getOrCreateChildWithName (id::SLOTS, nullptr); }
+    ValueTree getSlotClip (ValueTree track, const String& sceneUid) const;   // CLIP inside the SLOT (may be invalid)
+    ValueTree setSlotClip (ValueTree track, const String& sceneUid, ValueTree clip);   // replaces existing
     ValueTree masterTrack() const;
 
     // type: "audio" | "midi" | "bus" | "video" | "master"

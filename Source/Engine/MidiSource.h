@@ -19,15 +19,23 @@ public:
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     void setPlaylist (std::shared_ptr<const MidiPlaylist> p);
+    void setSessionClip (std::shared_ptr<const MidiPlaylist> p);
 
     std::atomic<bool> armed { false };
 
+    // session view: looping slot overrides the timeline
+    std::atomic<bool> sessEngaged { false };
+    std::atomic<juce::int64> sessStart { 0 }, sessLen { 0 };
+
 private:
+    void emitSpan (juce::MidiBuffer&, const MidiPlaylist&, juce::int64 localStart, int count, int bufOffset);
+
     AudioEngine& engine;
     String trackUid;
 
     juce::SpinLock lock;
     std::shared_ptr<const MidiPlaylist> pending, rt;
+    std::shared_ptr<const MidiPlaylist> sessPending, sessRT;
 };
 
 } // namespace dg

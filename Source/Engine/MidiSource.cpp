@@ -13,6 +13,27 @@ void MidiSourceProcessor::setPlaylist (std::shared_ptr<const MidiPlaylist> p)
     pending = std::move (p);
 }
 
+void MidiSourceProcessor::setSessionClip (std::shared_ptr<const MidiPlaylist> p)
+{
+    juce::SpinLock::ScopedLockType sl (lock);
+    sessPending = std::move (p);
+}
+
+void MidiSourceProcessor::emitSpan (juce::MidiBuffer& midi, const MidiPlaylist& pl,
+                                    juce::int64 localStart, int count, int bufOffset)
+{
+    for (const auto& note : pl.notes)
+    {
+        if (note.on >= localStart + count) break;
+        if (note.on >= localStart)
+            midi.addEvent (juce::MidiMessage::noteOn (1, note.note, note.vel),
+                           bufOffset + (int) (note.on - localStart));
+        if (note.off >= localStart && note.off < localStart + count)
+            midi.addEvent (juce::MidiMessage::noteOff (1, note.note),
+                           bufOffset + (int) (note.off - localStart));
+    }
+}
+
 void MidiSourceProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     buffer.clear();
@@ -32,20 +53,43 @@ void MidiSourceProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
     {
         juce::SpinLock::ScopedTryLockType tl (lock);
-        if (tl.isLocked() && pending != rt)
-            rt = pending;
+        if (tl.isLocked())
+        {
+            if (pending != rt) rt = pending;
+            if (sessPending != sessRT) sessRT = sessPending;
+        }
     }
+
+    // session slot overrides the timeline notes on this track
+    if (sessEngaged.load())
+    {
+        const juce::int64 len = sessLen.load();
+        if (sessRT != nullptr && len > 0)
+        {
+            juce::int64 local = (pos - sessStart.load()) % len;
+            if (local < 0) local += len;
+            int done = 0;
+            while (done < n)
+            {
+                const int chunkLen = (int) juce::jmin ((juce::int64) (n - done), len - local);
+                emitSpan (midi, *sessRT, local, chunkLen, done);
+                done += chunkLen;
+                local += chunkLen;
+                if (local >= len)
+                {
+                    local = 0;       // loop wrap: close hanging notes cleanly
+                    for (int ch = 1; ch <= 16; ++ch)
+                        midi.addEvent (juce::MidiMessage::allNotesOff (ch), juce::jmax (0, done - 1));
+                }
+            }
+        }
+        return;
+    }
+
     if (rt == nullptr)
         return;
 
-    for (const auto& note : rt->notes)     // sorted by 'on'
-    {
-        if (note.on >= pos + n) break;
-        if (note.on >= pos)
-            midi.addEvent (juce::MidiMessage::noteOn (1, note.note, note.vel), (int) (note.on - pos));
-        if (note.off >= pos && note.off < pos + n)
-            midi.addEvent (juce::MidiMessage::noteOff (1, note.note), (int) (note.off - pos));
-    }
+    emitSpan (midi, *rt, pos, n, 0);
 }
 
 } // namespace dg

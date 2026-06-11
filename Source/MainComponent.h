@@ -10,6 +10,7 @@
 #include "UI/BrowserPanel.h"
 #include "UI/ChainPanel.h"
 #include "UI/PatchView.h"
+#include "UI/SessionGrid.h"
 
 namespace dg
 {
@@ -67,6 +68,8 @@ private:
 
     std::unique_ptr<TransportBar> transportBar;
     std::unique_ptr<TimelineView> timeline;
+    std::unique_ptr<SessionGrid> sessionGrid;
+    bool showSession = false;
     juce::TabbedComponent bottomTabs { juce::TabbedButtonBar::TabsAtTop };
     std::unique_ptr<MixerView> mixer;
     std::unique_ptr<PianoRoll> pianoRoll;

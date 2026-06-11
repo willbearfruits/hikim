@@ -71,8 +71,42 @@ void SessionModel::newSession()
     addTrack ("audio", "Audio 1");
     addTrack ("audio", "Audio 2");
     addTrack ("midi",  "Inst 1");
+    for (int i = 0; i < 8; ++i)
+        addScene ("Scene " + String (i + 1));
 
     if (onSessionReplaced) onSessionReplaced();
+}
+
+ValueTree SessionModel::addScene (const String& name)
+{
+    ValueTree s (id::SCENE);
+    s.setProperty (id::uid, newUID(), nullptr);
+    s.setProperty (id::name, name, nullptr);
+    scenes().appendChild (s, &undo);
+    return s;
+}
+
+ValueTree SessionModel::getSlotClip (ValueTree track, const String& sceneUid) const
+{
+    auto slot = slotsOf (track).getChildWithProperty (id::scene, sceneUid);
+    return slot.getChildWithName (id::CLIP);
+}
+
+ValueTree SessionModel::setSlotClip (ValueTree track, const String& sceneUid, ValueTree clip)
+{
+    auto slots = slotsOf (track);
+    auto slot = slots.getChildWithProperty (id::scene, sceneUid);
+    if (! slot.isValid())
+    {
+        slot = ValueTree (id::SLOT);
+        slot.setProperty (id::scene, sceneUid, nullptr);
+        slots.appendChild (slot, &undo);
+    }
+    for (int i = slot.getNumChildren(); --i >= 0;)
+        slot.removeChild (i, &undo);
+    if (clip.isValid())
+        slot.appendChild (clip, &undo);
+    return slot;
 }
 
 ValueTree SessionModel::masterTrack() const
@@ -215,8 +249,11 @@ bool SessionModel::load (const File& f, String& error)
     projectFile = f;
 
     // tolerate older / hand-edited files
-    for (auto tag : { id::TRANSPORT, id::TEMPOMAP, id::TRACKS, id::MARKERS, id::VIDEO, id::MODS })
+    for (auto tag : { id::TRANSPORT, id::TEMPOMAP, id::TRACKS, id::MARKERS, id::VIDEO, id::MODS, id::SCENES })
         root.getOrCreateChildWithName (tag, nullptr);
+    if (scenes().getNumChildren() == 0)
+        for (int i = 0; i < 8; ++i)
+            addScene ("Scene " + String (i + 1));
 
     if (onSessionReplaced) onSessionReplaced();
     return true;

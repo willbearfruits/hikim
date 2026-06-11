@@ -65,6 +65,14 @@ public:
     juce::AudioProcessor* getInstrumentFor (const String& trackUid) const;
     int getTotalLatencySamples() const;
 
+    // ---- session view (launch grid) ----
+    void launchSlot (ValueTree track, ValueTree clip);      // quantized to the launch grid
+    void stopTrackSession (const String& trackUid);
+    void stopAllSession();
+    struct SlotState { String playing, pending; };
+    SlotState getSessionState (const String& trackUid);     // message thread
+    std::atomic<double> launchQuantizeBeats { 4.0 };
+
     // ---- modulation (PATCH view) ----
     // sources: 0..3 = LFO1..4, 4 = chaos (Lorenz), 5 = envelope follower
     static constexpr int kNumModSources = 6;
@@ -187,6 +195,22 @@ private:
     void connectChain (const std::vector<juce::AudioProcessorGraph::Node::Ptr>& nodes);
     juce::AudioProcessorGraph::Node::Ptr getBusHead (const String& busUid);
     void instantiateInsert (const ValueTree& insert, double sr, int blockSize);
+
+    // ---- session view internals ----
+    struct SessionAction
+    {
+        ClipPlayerProcessor* a = nullptr;
+        MidiSourceProcessor* m = nullptr;
+        juce::int64 when = 0, loopLen = 0;
+        bool stop = false;
+    };
+    struct SessUIState { String playing, pending; bool pendingStop = false; juce::int64 when = 0; };
+    juce::int64 nextLaunchBoundary();
+    void applySessionActions (juce::int64 pos);             // audio thread
+    void scheduleSessionAction (SessionAction);
+    juce::SpinLock sessActLock;
+    std::vector<SessionAction> sessActions;
+    std::map<String, SessUIState> sessUI;                   // message thread only
 
     // ---- recording ----
     void createRecordSessions();

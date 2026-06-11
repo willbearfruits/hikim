@@ -21,6 +21,9 @@ MainComponent::MainComponent()
     timeline = std::make_unique<TimelineView> (*engine, session, *pluginHost, ui);
     addAndMakeVisible (*timeline);
 
+    sessionGrid = std::make_unique<SessionGrid> (*engine, session, ui);
+    addChildComponent (*sessionGrid);          // Tab flips Session <-> Arrange
+
     mixer = std::make_unique<MixerView> (*engine, session, ui);
     pianoRoll = std::make_unique<PianoRoll> (*engine, session, ui);
     fileBin = std::make_unique<FileBin> (*engine, appProps.getUserSettings());
@@ -93,6 +96,9 @@ void MainComponent::resized()
     transportBar->setBounds (b.removeFromTop (42));
     bottomTabs.setBounds (b.removeFromBottom (juce::jmax (180, getHeight() / 4)));
     timeline->setBounds (b);
+    sessionGrid->setBounds (b);
+    timeline->setVisible (! showSession);
+    sessionGrid->setVisible (showSession);
 }
 
 // ---------------------------------------------------------------- timer: automation write drain
@@ -334,6 +340,12 @@ bool MainComponent::keyPressed (const juce::KeyPress& k, juce::Component* origin
     const int kc = k.getKeyCode();
     auto is = [kc] (char c) { return kc == c || kc == c + 32; };   // letter, either case
 
+    if (kc == juce::KeyPress::tabKey || is ('V'))
+    {
+        showSession = ! showSession;
+        resized();
+        return true;
+    }
     if (kc == juce::KeyPress::spaceKey) { engine->togglePlayStop(); return true; }
     if (kc == juce::KeyPress::homeKey) { engine->seekSeconds (0.0); return true; }
     if (k.getModifiers().isCommandDown())

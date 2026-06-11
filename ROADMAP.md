@@ -18,6 +18,18 @@ sentimental side — or the machinery both stand on.
 - CHAIN tab: Bitwig-style device boxes with inline TEETH macros
 - PATCH tab: modulation node canvas - LFO x4 / Lorenz chaos / envelope follower
   cabled to any parameter in the session (the mod matrix from "the big four")
+- SESSION view (Phase A of the Live layer): launch grid with quantized clip/scene
+  launching, synced looping slots, Tab to flip views
+
+## The Live/Max build-out (owner-approved phases)
+
+- **Phase B - PATCHER device**: Max-style object patcher as an insert device
+  (osc~, line~, noise~, filters, math, delay~, S&H, metro, random, OSC in/out);
+  movable boxes everywhere, patches saved in the chain.
+- **Phase C - capture & glue**: record into session slots, capture the session jam
+  into the arrangement, drag clips between views, patcher objects as host mod sources.
+- **Phase D - the Jitter-shaped thing**: character-matrix visual objects rendering
+  to a glyph window (Jitter bent toward characterglitch).
 
 ## Next (small, soon)
 

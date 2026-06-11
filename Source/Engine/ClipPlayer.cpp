@@ -19,6 +19,12 @@ void ClipPlayerProcessor::setPlaylist (std::shared_ptr<const AudioPlaylist> p)
     pending = std::move (p);
 }
 
+void ClipPlayerProcessor::setSessionClip (std::shared_ptr<const AudioPlaylist> p)
+{
+    juce::SpinLock::ScopedLockType sl (lock);
+    sessPending = std::move (p);
+}
+
 void ClipPlayerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     const int n = buffer.getNumSamples();
@@ -73,9 +79,38 @@ void ClipPlayerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 
     {
         juce::SpinLock::ScopedTryLockType tl (lock);
-        if (tl.isLocked() && pending != rt)
-            rt = pending;
+        if (tl.isLocked())
+        {
+            if (pending != rt) rt = pending;
+            if (sessPending != sessRT) sessRT = sessPending;
+        }
     }
+
+    // session slot overrides the timeline on this track, looping in sync
+    if (sessEngaged.load())
+    {
+        const juce::int64 len = sessLen.load();
+        if (sessRT != nullptr && ! sessRT->clips.empty() && len > 0)
+        {
+            const auto& c = sessRT->clips[0];
+            juce::int64 local = (pos - sessStart.load()) % len;
+            if (local < 0) local += len;
+            int done = 0;
+            float* ptrs[2];
+            while (done < n)
+            {
+                const int chunkLen = (int) juce::jmin ((juce::int64) (n - done), len - local);
+                for (int ch = 0; ch < chans; ++ch)
+                    ptrs[ch] = buffer.getWritePointer (ch) + done;
+                juce::AudioBuffer<float> sub (ptrs, chans, chunkLen);
+                renderClip (c, sub, local, chunkLen);
+                done += chunkLen;
+                local = (local + chunkLen) % len;
+            }
+        }
+        return;
+    }
+
     if (rt == nullptr)
         return;
 

@@ -80,6 +80,23 @@ struct SessionTests : juce::UnitTest
         s3.addTrack ("audio", "X");
         auto tracks = s3.tracks();
         expectEquals (tracks.getChild (tracks.getNumChildren() - 1)[id::type].toString(), String ("master"));
+
+        beginTest ("session view: scenes + slots");
+        SessionModel s4;
+        expectEquals (s4.scenes().getNumChildren(), 8);          // default scene rows
+        auto track4 = s4.addTrack ("midi", "T");
+        const String sceneUid = s4.scenes().getChild (2)[id::uid].toString();
+        ValueTree clip4 (id::CLIP);
+        clip4.setProperty (id::uid, SessionModel::newUID(), nullptr);
+        clip4.setProperty (id::type, "midi", nullptr);
+        clip4.setProperty (id::loopBeats, 8.0, nullptr);
+        s4.setSlotClip (track4, sceneUid, clip4);
+        auto got = s4.getSlotClip (track4, sceneUid);
+        expect (got.isValid());
+        expectWithinAbsoluteError ((double) got[id::loopBeats], 8.0, 1.0e-12);
+        expect (! s4.getSlotClip (track4, s4.scenes().getChild (0)[id::uid].toString()).isValid());
+        s4.setSlotClip (track4, sceneUid, {});                   // clear slot
+        expect (! s4.getSlotClip (track4, sceneUid).isValid());
     }
 };
 

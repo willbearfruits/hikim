@@ -1421,9 +1421,20 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* input, i
             if (automationActive.load())
                 len = juce::jmin (len, 256);    // <=5ms automation resolution at 48k
             // EXTEND: per-sample automation ramps inside the parameters themselves
+
+            // sample-accurate session launches: split at scheduled action times
+            {
+                juce::SpinLock::ScopedTryLockType tl (sessActLock);
+                if (tl.isLocked())
+                    for (const auto& s : sessActions)
+                        if (pos < s.when && s.when < pos + len)
+                            len = (int) (s.when - pos);
+            }
         }
 
         setPlayheadAtomics (pos, playing);
+        if (playing)
+            applySessionActions (pos);
         applyAutomation (pos);
         applyMods (pos, len);
 
@@ -1520,6 +1531,188 @@ void AudioEngine::renderMetronome (juce::AudioBuffer<float>& buf, const TempoMap
                 buf.addSample (ch, i, s);
         }
         // EXTEND: carry click tails across blocks (currently truncated at block end)
+    }
+}
+
+// ============================================================ session view
+
+juce::int64 AudioEngine::nextLaunchBoundary()
+{
+    auto map = getTempoMap();
+    const juce::int64 pos = transportPos.load();
+    if (! transportPlaying.load()) return pos;
+    const double q = launchQuantizeBeats.load();
+    if (q <= 0.001) return pos;
+    const double ppq = map->samplesToBeats (pos);
+    const double next = std::ceil (ppq / q - 1.0e-6) * q;
+    juce::int64 b = map->beatsToSamples (next);
+    if (b < pos) b = map->beatsToSamples (next + q);
+    return b;
+}
+
+void AudioEngine::scheduleSessionAction (SessionAction act)
+{
+    juce::SpinLock::ScopedLockType sl (sessActLock);
+    sessActions.erase (std::remove_if (sessActions.begin(), sessActions.end(),
+        [&] (const SessionAction& s) { return s.a == act.a && s.m == act.m; }), sessActions.end());
+    if (sessActions.size() < 64)
+        sessActions.push_back (act);
+}
+
+void AudioEngine::launchSlot (ValueTree track, ValueTree clip)
+{
+    const String uid = track[id::uid];
+    auto it = trackNodes.find (uid);
+    if (it == trackNodes.end() || it->second.source == nullptr || ! clip.isValid()) return;
+    auto& tn = it->second;
+    auto map = getTempoMap();
+    const String type = track[id::type];
+
+    SessionAction act;
+    act.when = nextLaunchBoundary();
+
+    if (type == "audio")
+    {
+        auto* src = dynamic_cast<ClipPlayerProcessor*> (tn.source->getProcessor());
+        if (src == nullptr) return;
+
+        const File f = mediaFileFor (File (clip[id::file].toString()));
+        const String cuid = clip[id::uid];
+        std::shared_ptr<juce::AudioFormatReader> reader;
+        auto cached = readerCache.find (cuid);
+        if (cached != readerCache.end() && cached->second.first == f.getFullPathName())
+            reader = cached->second.second;
+        else if (auto* raw = formatManager.createReaderFor (f))
+        {
+            auto* buffered = new juce::BufferingAudioReader (raw, diskThread, 1 << 18);
+            buffered->setReadTimeout (0);
+            reader = std::shared_ptr<juce::AudioFormatReader> (buffered);
+            readerCache[cuid] = { f.getFullPathName(), reader };
+        }
+        if (reader == nullptr) return;
+
+        auto pl = std::make_shared<AudioPlaylist>();
+        AudioClipRT rc;
+        rc.start = 0;
+        rc.length = juce::jmax ((juce::int64) 64, secToSamples ((double) clip[id::length]));
+        rc.offset = (double) clip[id::offset];
+        rc.gain = juce::Decibels::decibelsToGain ((float) (double) clip.getProperty (id::clipGain, 0.0));
+        const double fileSR = (double) clip.getProperty (id::fileSR, currentSR);
+        const double stretchRate = juce::jlimit (0.1, 10.0, (double) clip.getProperty (id::stretch, 1.0));
+        rc.ratio = (fileSR / currentSR) / stretchRate;   // EXTEND: pitch-locked session loops via StretchCache
+        rc.reader = reader;
+        rc.numFileChannels = (int) reader->numChannels;
+        rc.fileLength = reader->lengthInSamples;
+        pl->clips.push_back (rc);
+
+        act.loopLen = rc.length;
+        playlistGraveyard.push_back (lastPlaylists["sess:" + uid]);
+        lastPlaylists["sess:" + uid] = pl;
+        src->setSessionClip (pl);
+        act.a = src;
+    }
+    else if (type == "midi")
+    {
+        auto* src = dynamic_cast<MidiSourceProcessor*> (tn.source->getProcessor());
+        if (src == nullptr) return;
+
+        const double launchBeat = map->samplesToBeats (act.when);
+        const double spb = 60.0 / map->bpmAtBeat (launchBeat) * currentSR;
+        const double loopBeats = juce::jmax (1.0, (double) clip.getProperty (id::loopBeats, 4.0));
+        act.loopLen = (juce::int64) std::llround (loopBeats * spb);
+
+        auto pl = std::make_shared<MidiPlaylist>();
+        for (const auto& nt : clip.getChildWithName (id::NOTES))
+        {
+            MidiNoteRT n;
+            n.on  = (juce::int64) std::llround ((double) nt[id::beat] * spb);
+            n.off = (juce::int64) std::llround (((double) nt[id::beat] + (double) nt[id::len]) * spb);
+            if (n.on >= act.loopLen) continue;
+            n.off = juce::jmin (n.off, act.loopLen);
+            n.note = (juce::uint8) (int) nt[id::pitch];
+            n.vel  = (juce::uint8) juce::jlimit (1, 127, (int) nt[id::vel]);
+            pl->notes.push_back (n);
+        }
+        std::sort (pl->notes.begin(), pl->notes.end(), [] (auto& x, auto& y) { return x.on < y.on; });
+
+        midiGraveyard.push_back (lastMidiPlaylists["sess:" + uid]);
+        lastMidiPlaylists["sess:" + uid] = pl;
+        src->setSessionClip (pl);
+        act.m = src;
+    }
+    else
+        return;
+
+    scheduleSessionAction (act);
+    auto& st = sessUI[uid];
+    st.pending = clip[id::uid].toString();
+    st.pendingStop = false;
+    st.when = act.when;
+    if (! transportPlaying.load()) play();
+}
+
+void AudioEngine::stopTrackSession (const String& uid)
+{
+    auto it = trackNodes.find (uid);
+    if (it == trackNodes.end() || it->second.source == nullptr) return;
+
+    SessionAction act;
+    act.stop = true;
+    act.when = nextLaunchBoundary();
+    act.a = dynamic_cast<ClipPlayerProcessor*> (it->second.source->getProcessor());
+    act.m = dynamic_cast<MidiSourceProcessor*> (it->second.source->getProcessor());
+    if (act.a == nullptr && act.m == nullptr) return;
+
+    scheduleSessionAction (act);
+    auto& st = sessUI[uid];
+    st.pending.clear();
+    st.pendingStop = true;
+    st.when = act.when;
+}
+
+void AudioEngine::stopAllSession()
+{
+    for (const auto& t : session.tracks())
+    {
+        const String type = t[id::type];
+        if (type == "audio" || type == "midi")
+            stopTrackSession (t[id::uid].toString());
+    }
+}
+
+AudioEngine::SlotState AudioEngine::getSessionState (const String& uid)
+{
+    auto& st = sessUI[uid];
+    if ((st.pending.isNotEmpty() || st.pendingStop) && st.when > 0 && transportPos.load() >= st.when)
+    {
+        if (st.pendingStop) st.playing.clear();
+        else st.playing = st.pending;
+        st.pending.clear();
+        st.pendingStop = false;
+        st.when = 0;
+    }
+    return { st.playing, st.pending };
+}
+
+void AudioEngine::applySessionActions (juce::int64 pos)
+{
+    juce::SpinLock::ScopedTryLockType tl (sessActLock);
+    if (! tl.isLocked()) return;
+    for (int i = (int) sessActions.size(); --i >= 0;)
+    {
+        auto& s = sessActions[(size_t) i];
+        if (pos < s.when) continue;
+        if (s.a != nullptr)
+        {
+            if (s.stop) s.a->sessEngaged = false;
+            else { s.a->sessStart = s.when; s.a->sessLen = s.loopLen; s.a->sessEngaged = true; }
+        }
+        if (s.m != nullptr)
+        {
+            if (s.stop) s.m->sessEngaged = false;
+            else { s.m->sessStart = s.when; s.m->sessLen = s.loopLen; s.m->sessEngaged = true; }
+        }
+        sessActions.erase (sessActions.begin() + i);
     }
 }
 

@@ -13,6 +13,7 @@ namespace dg::id
     DG_ID (INSERT)    DG_ID (AUTO)      DG_ID (LANE)     DG_ID (PT)
     DG_ID (MARKERS)   DG_ID (MARKER)    DG_ID (VIDEO)
     DG_ID (MODS)      DG_ID (MOD)      DG_ID (MODTARGET)   // modulation patch
+    DG_ID (SCENES)    DG_ID (SCENE)    DG_ID (SLOTS)    DG_ID (SLOT)   // session view
 
     // common props
     DG_ID (version)   DG_ID (uid)       DG_ID (type)     DG_ID (name)
@@ -42,7 +43,7 @@ namespace dg::id
     DG_ID (param)     DG_ID (mode)      DG_ID (visible)  DG_ID (t) DG_ID (v)
     DG_ID (src)       DG_ID (target)    DG_ID (amount)   DG_ID (base)
     DG_ID (x)         DG_ID (y)         DG_ID (rate)     DG_ID (shape)
-    DG_ID (track)
+    DG_ID (track)     DG_ID (loopBeats) DG_ID (scene)
 
     // transport / video
     DG_ID (loopStart) DG_ID (loopEnd)   DG_ID (loopOn)

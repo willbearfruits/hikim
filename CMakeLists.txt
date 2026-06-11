@@ -62,6 +62,7 @@ target_sources(dawglitch PRIVATE
     Source/UI/BrowserPanel.cpp
     Source/UI/ChainPanel.cpp
     Source/UI/PatchView.cpp
+    Source/UI/SessionGrid.cpp
     Source/UI/Dialogs.cpp)
 
 target_include_directories(dawglitch PRIVATE Source)

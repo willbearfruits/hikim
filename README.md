@@ -55,6 +55,11 @@ ASIO: drop the Steinberg ASIO SDK in and enable `JUCE_ASIO=1` in `CMakeLists.txt
   **Ctrl+S** save - **Ctrl+E** export - **Ctrl+wheel** zoom.
 - Timeline tools (toolbar top-left, or keys **1/2/3**): **select** (arrow),
   **razor** (click a clip to split there), **erase** (click a clip to delete it).
+- **Tab** (or V) flips **SESSION** ↔ **ARRANGE**. The session grid: tracks as columns,
+  scenes as rows; click a slot to launch it quantized (combo top-right, default 1 bar);
+  clips loop in sync until the track's stop square or STOP ALL; scene ▶ fires a row.
+  Click an empty MIDI cell to create a loop and edit it in the piano roll; drop audio
+  files onto audio cells. Right-click a slot: delete / rename / loop length.
 - Drag audio files anywhere in the window to import (`.dgproj` opens, video files load
   the video track). Formats: WAV/AIFF/FLAC/OGG/MP3 natively; with **ffmpeg** installed,
   anything it can decode (opus, m4a, wma, exotic wavs, ...) bridges in via a one-time

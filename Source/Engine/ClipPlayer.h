@@ -77,10 +77,15 @@ public:
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     void setPlaylist (std::shared_ptr<const AudioPlaylist> p);
+    void setSessionClip (std::shared_ptr<const AudioPlaylist> p);   // message thread; engaged later by engine
 
     std::atomic<int>  monitorMode { 0 };       // 0 off, 1 direct (engine handles), 2 through chain
     std::atomic<bool> armed { false };
     std::atomic<RecordSession*> rec { nullptr };
+
+    // session view: a looping slot overrides the timeline on this track
+    std::atomic<bool> sessEngaged { false };
+    std::atomic<juce::int64> sessStart { 0 }, sessLen { 0 };
 
 private:
     void renderClip (const AudioClipRT& c, juce::AudioBuffer<float>& out, juce::int64 blockStart, int n);
@@ -90,6 +95,7 @@ private:
 
     juce::SpinLock lock;
     std::shared_ptr<const AudioPlaylist> pending, rt;   // rt only touched on audio thread
+    std::shared_ptr<const AudioPlaylist> sessPending, sessRT;
 
     juce::AudioBuffer<float> fileTemp, inputCopy;
 };
