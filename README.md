@@ -64,6 +64,11 @@ ASIO: drop the Steinberg ASIO SDK in and enable `JUCE_ASIO=1` in `CMakeLists.txt
 - Right-click everything: ruler (tempo/timesig changes, markers), clips, track headers,
   automation lanes, rack knobs (macro assign / MIDI learn). Drag a header's bottom edge
   to resize the track or lane.
+- **CHAIN** tab: the selected track's devices as boxes (power, edit, reorder, remove;
+  TEETH boxes carry live macro knobs). **PATCH** tab: the modulation bay — drag cables
+  from LFOs / CHAOS (Lorenz) / FOLLOW (envelope follower) onto any parameter
+  (*+ TARGET* adds one); cable amount is bipolar, knobs wiggle around wherever you
+  set them, and moving a knob re-centres its modulation.
 - Track header buttons: **M**ute, **S**olo, **R**ecord-arm, **MON** (off → direct dry →
   through the insert chain), **FX** (insert chain: add **TEETH**, add plugins,
   set instrument — built-ins: GlitchTone, RUST, GRAVEL, HYMN), **A** (automation lanes).

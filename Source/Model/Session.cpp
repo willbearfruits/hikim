@@ -215,7 +215,7 @@ bool SessionModel::load (const File& f, String& error)
     projectFile = f;
 
     // tolerate older / hand-edited files
-    for (auto tag : { id::TRANSPORT, id::TEMPOMAP, id::TRACKS, id::MARKERS, id::VIDEO })
+    for (auto tag : { id::TRANSPORT, id::TEMPOMAP, id::TRACKS, id::MARKERS, id::VIDEO, id::MODS })
         root.getOrCreateChildWithName (tag, nullptr);
 
     if (onSessionReplaced) onSessionReplaced();

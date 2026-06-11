@@ -25,11 +25,20 @@ MainComponent::MainComponent()
     pianoRoll = std::make_unique<PianoRoll> (*engine, session, ui);
     fileBin = std::make_unique<FileBin> (*engine, appProps.getUserSettings());
     fxExplorer = std::make_unique<FxExplorer> (*pluginHost);
+    chainPanel = std::make_unique<ChainPanel> (*engine, session, ui);
+    patchView = std::make_unique<PatchView> (*engine, session, ui);
     bottomTabs.addTab ("MIXER", col::panel, mixer.get(), false);
+    bottomTabs.addTab ("CHAIN", col::panel, chainPanel.get(), false);
+    bottomTabs.addTab ("PATCH", col::panel, patchView.get(), false);
     bottomTabs.addTab ("PIANO ROLL", col::panel, pianoRoll.get(), false);
     bottomTabs.addTab ("FILES", col::panel, fileBin.get(), false);
     bottomTabs.addTab ("FX", col::panel, fxExplorer.get(), false);
     addAndMakeVisible (bottomTabs);
+
+    chainPanel->showFxMenu = [this] (ValueTree track, juce::Component* target)
+    {
+        timeline->showTrackFxMenu (track, target);
+    };
 
     fxExplorer->onApply = [this] (const String& fxId)
     {

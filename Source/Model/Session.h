@@ -25,6 +25,7 @@ public:
     ValueTree tracks()     const { return root.getChildWithName (id::TRACKS); }
     ValueTree markers()    const { return root.getChildWithName (id::MARKERS); }
     ValueTree video()      const { return root.getChildWithName (id::VIDEO); }
+    ValueTree mods()       const { ValueTree r = root; return r.getOrCreateChildWithName (id::MODS, nullptr); }
     ValueTree masterTrack() const;
 
     // type: "audio" | "midi" | "bus" | "video" | "master"

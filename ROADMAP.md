@@ -13,6 +13,11 @@ sentimental side — or the machinery both stand on.
 - Window-wide drag-and-drop (audio / video / .dgproj)
 - Resizable track + lane heights
 - Punch removed from the UI (owner's call; engine support dormant)
+- ffmpeg media bridge (decode anything) + full edit toolset + tool icons (1/2/3)
+- Headless test suite (`ruin_tests`)
+- CHAIN tab: Bitwig-style device boxes with inline TEETH macros
+- PATCH tab: modulation node canvas - LFO x4 / Lorenz chaos / envelope follower
+  cabled to any parameter in the session (the mod matrix from "the big four")
 
 ## Next (small, soon)
 
@@ -30,11 +35,10 @@ sentimental side — or the machinery both stand on.
 
 ## The big four (defining features)
 
-1. **TEETH mod matrix** — LFOs, chaos sources (Lorenz, logistic map, S&H noise),
-   envelope follower, and *sidechain from another track* routed to any module param or
-   macro. Corruption that moves itself, keyed off the music. This is the single most
-   RUIN-shaped feature on the list — the attractors from the characterglitch pieces
-   become modulation sources.
+1. **Audio-signal node patching** — extend the PATCH canvas from modulation to audio:
+   boxes = tracks/devices/buses, cables = signal flow, feedback routes allowed (the
+   engine's AudioProcessorGraph already supports arbitrary routing; this is UI work).
+   Max/MSP energy inside the DAW.
 2. **Slicer/sampler instrument** — drop a break, onset-detect slices, play them from
    MIDI; "extract groove" from the slices to a swing template. The breakcore core
    workflow: chop the amen, resequence it in the piano roll, then feed it TEETH.
@@ -42,6 +46,8 @@ sentimental side — or the machinery both stand on.
    recording the jam into the arrangement. RUIN as a performance instrument.
 4. **Live RT RubberBand** — pitch-locked stretch playable in realtime (the render
    cache stays for quality; live mode makes stretch a knob you can ride).
+   Plus mod-matrix depth: more chaos sources (logistic map, drunk walk), per-cable
+   lag/curve, MIDI-note and velocity as sources.
 
 ## Identity moves (only RUIN would do these)
 

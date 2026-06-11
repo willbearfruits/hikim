@@ -60,6 +60,8 @@ target_sources(dawglitch PRIVATE
     Source/UI/PianoRoll.cpp
     Source/UI/MixerView.cpp
     Source/UI/BrowserPanel.cpp
+    Source/UI/ChainPanel.cpp
+    Source/UI/PatchView.cpp
     Source/UI/Dialogs.cpp)
 
 target_include_directories(dawglitch PRIVATE Source)

@@ -65,6 +65,12 @@ public:
     juce::AudioProcessor* getInstrumentFor (const String& trackUid) const;
     int getTotalLatencySamples() const;
 
+    // ---- modulation (PATCH view) ----
+    // sources: 0..3 = LFO1..4, 4 = chaos (Lorenz), 5 = envelope follower
+    static constexpr int kNumModSources = 6;
+    juce::AudioProcessorParameter* resolveParamTarget (const String& trackUid, const String& target) const;
+    float getModSourceValue (int idx) const { return modSrcValues[(size_t) juce::jlimit (0, 5, idx)].load(); }
+
     // ---- ui midi tap (step input, midi indicators) ----
     std::vector<juce::MidiMessage> drainUiMidi();
 
@@ -174,6 +180,8 @@ private:
     void updateTransportFromTree();
     void rebuildAutomation();
     void detachAutomation();
+    void rebuildMods();
+    void applyMods (juce::int64 pos, int numSamples);
     void scheduleRebuild (int what);
 
     void connectChain (const std::vector<juce::AudioProcessorGraph::Node::Ptr>& nodes);
@@ -263,6 +271,46 @@ private:
     juce::CriticalSection writeLock;
     struct WriteEvt { int laneIdx; juce::int64 t; float v; };
     std::vector<WriteEvt> writeEvents;
+
+    // modulation: everything modulates everything
+    struct ModConn
+    {
+        juce::AudioProcessorParameter* param = nullptr;
+        int src = 0;
+        float amount = 0;
+        std::shared_ptr<std::atomic<float>> base;
+        String uid;
+    };
+    struct ModRTState
+    {
+        std::vector<ModConn> conns;
+        float lfoRate[4] { 1.0f, 0.5f, 2.0f, 4.0f };
+        int lfoShape[4] {};
+        float chaosRate = 1.0f;
+        ChannelStripProcessor* follower = nullptr;
+    };
+    struct ModListener : juce::AudioProcessorParameter::Listener
+    {
+        AudioEngine& e;
+        juce::AudioProcessorParameter* param;
+        std::shared_ptr<std::atomic<float>> base;
+        ModListener (AudioEngine& en, juce::AudioProcessorParameter* p, std::shared_ptr<std::atomic<float>> b)
+            : e (en), param (p), base (std::move (b)) { param->addListener (this); }
+        ~ModListener() override { param->removeListener (this); }
+        void parameterValueChanged (int, float v) override
+        {
+            if (! e.applyingAutomation.load()) base->store (v);   // user moved the knob: new centre
+        }
+        void parameterGestureChanged (int, bool) override {}
+    };
+
+    juce::SpinLock modLock;
+    std::shared_ptr<const ModRTState> pendingMods, rtMods;
+    std::vector<std::shared_ptr<const ModRTState>> modGraveyard;
+    std::vector<std::unique_ptr<ModListener>> modListeners;
+    std::array<std::atomic<float>, 6> modSrcValues {};
+    double lorenz[3] { 0.1, 0.0, 0.0 };
+    float followEnv = 0.0f;
 
     // file preview: a second device callback that the device manager mixes in
     juce::AudioSourcePlayer previewPlayer;

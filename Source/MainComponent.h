@@ -8,6 +8,8 @@
 #include "UI/PianoRoll.h"
 #include "UI/Dialogs.h"
 #include "UI/BrowserPanel.h"
+#include "UI/ChainPanel.h"
+#include "UI/PatchView.h"
 
 namespace dg
 {
@@ -70,6 +72,8 @@ private:
     std::unique_ptr<PianoRoll> pianoRoll;
     std::unique_ptr<FileBin> fileBin;
     std::unique_ptr<FxExplorer> fxExplorer;
+    std::unique_ptr<ChainPanel> chainPanel;
+    std::unique_ptr<PatchView> patchView;
 
     std::unique_ptr<FloatingWindow> settingsWin, pluginWin, videoWin;
     std::map<String, std::unique_ptr<FloatingWindow>> editorWindows;   // by insert uid

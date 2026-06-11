@@ -7,7 +7,7 @@ namespace dg
 
 namespace rebuild
 {
-    enum { graph = 1, tempo = 2, flags = 4, automation = 8, transport = 16, playlists = 32 };
+    enum { graph = 1, tempo = 2, flags = 4, automation = 8, transport = 16, playlists = 32, mods = 64 };
 }
 
 AudioEngine::AudioEngine (SessionModel& s, PluginHost& ph, juce::PropertiesFile* props)
@@ -51,6 +51,7 @@ AudioEngine::~AudioEngine()
     deviceManager.removeAudioCallback (this);
     deviceManager.removeChangeListener (this);
     detachAutomation();
+    modListeners.clear();
     session.root.removeListener (this);
     graph.clear();
 }
@@ -95,6 +96,7 @@ void AudioEngine::handleAsyncUpdate()
         }
         if (f & rebuild::flags)      updateTrackFlags();
         if (f & rebuild::automation) rebuildAutomation();
+        if (f & rebuild::mods)       rebuildMods();
     }
     if (f & rebuild::transport)  updateTransportFromTree();
     allPlaylistsDirty = false;
@@ -165,7 +167,9 @@ void AudioEngine::valueTreePropertyChanged (ValueTree& tree, const Identifier& p
         return;
     }
     if (tree.hasType (id::LANE) || tree.hasType (id::PT))
-        scheduleRebuild (rebuild::automation);
+    { scheduleRebuild (rebuild::automation); return; }
+    if (tree.hasType (id::MODS) || tree.hasType (id::MOD) || tree.hasType (id::MODTARGET))
+        scheduleRebuild (rebuild::mods);
 }
 
 void AudioEngine::valueTreeChildAdded (ValueTree& parent, ValueTree& child)
@@ -184,6 +188,8 @@ void AudioEngine::valueTreeChildAdded (ValueTree& parent, ValueTree& child)
     }
     if (child.hasType (id::LANE) || child.hasType (id::PT))
     { scheduleRebuild (rebuild::automation); return; }
+    if (child.hasType (id::MOD) || child.hasType (id::MODTARGET))
+    { scheduleRebuild (rebuild::mods); return; }
     if (child.hasType (id::TEMPO) || child.hasType (id::TIMESIG))
     { allPlaylistsDirty = true; scheduleRebuild (rebuild::tempo | rebuild::playlists); }
 }
@@ -223,6 +229,7 @@ std::shared_ptr<const TempoMap> AudioEngine::getTempoMap() const
 void AudioEngine::rebuildGraph()
 {
     detachAutomation();
+    modListeners.clear();           // listeners reference params on nodes we may remove
 
     auto trackList = session.tracks();
 
@@ -430,6 +437,7 @@ void AudioEngine::rebuildGraph()
     updateTrackFlags();
     updateAllPlaylists();
     rebuildAutomation();
+    rebuildMods();
 }
 
 juce::AudioProcessorGraph::Node::Ptr AudioEngine::getBusHead (const String& busUid)
@@ -512,6 +520,23 @@ void AudioEngine::instantiateInsert (const ValueTree& insert, double sr, int blo
 
 void AudioEngine::syncToTree()
 {
+    // persist modulation centres (knob positions the cables wiggle around)
+    {
+        auto modsTree = session.mods();
+        std::shared_ptr<const ModRTState> mods;
+        {
+            juce::SpinLock::ScopedLockType sl (modLock);
+            mods = pendingMods;
+        }
+        if (mods != nullptr)
+            for (const auto& c : mods->conns)
+            {
+                auto m = modsTree.getChildWithProperty (id::uid, c.uid);
+                if (m.isValid())
+                    m.setProperty (id::base, (double) c.base->load(), nullptr);
+            }
+    }
+
     for (auto t : session.tracks())
     {
         const String uid = t[id::uid];
@@ -749,7 +774,146 @@ int AudioEngine::getTotalLatencySamples() const
     return graph.getLatencySamples() + ioLatency.load();
 }
 
-// ============================================================ automation
+// ============================================================ automation / modulation
+
+juce::AudioProcessorParameter* AudioEngine::resolveParamTarget (const String& trackUid, const String& target) const
+{
+    auto it = trackNodes.find (trackUid);
+    if (it == trackNodes.end()) return nullptr;
+    const auto& tn = it->second;
+
+    if (target.startsWith ("strip:") && tn.strip != nullptr)
+    {
+        auto* st = static_cast<ChannelStripProcessor*> (tn.strip->getProcessor());
+        if (target == "strip:gain") return st->gainDb;
+        if (target == "strip:pan")  return st->pan;
+        if (target == "strip:mute") return st->mute;
+        return nullptr;
+    }
+    if (target == "send:A" && tn.sendA != nullptr)
+        return static_cast<SendProcessor*> (tn.sendA->getProcessor())->levelDb;
+    if (target == "send:B" && tn.sendB != nullptr)
+        return static_cast<SendProcessor*> (tn.sendB->getProcessor())->levelDb;
+    if (target.startsWith ("ins:"))
+    {
+        const String rest = target.fromFirstOccurrenceOf ("ins:", false, false);
+        const String iuid = rest.upToFirstOccurrenceOf (":", false, false);
+        const int pidx = rest.fromFirstOccurrenceOf (":", false, false).getIntValue();
+        if (auto* proc = getInsertProcessor (iuid))
+        {
+            const auto& params = proc->getParameters();
+            if (pidx >= 0 && pidx < params.size())
+                return params[pidx];
+        }
+    }
+    return nullptr;
+}
+
+void AudioEngine::rebuildMods()
+{
+    modListeners.clear();
+    auto modsTree = session.mods();
+    auto next = std::make_shared<ModRTState>();
+
+    for (int i = 0; i < 4; ++i)
+    {
+        next->lfoRate[i] = (float) (double) modsTree.getProperty ("lfo" + String (i + 1) + "rate",
+                                                                  next->lfoRate[i]);
+        next->lfoShape[i] = (int) modsTree.getProperty ("lfo" + String (i + 1) + "shape", 0);
+    }
+    next->chaosRate = (float) (double) modsTree.getProperty ("chaosRate", 1.0);
+    next->follower = getStrip (modsTree.getProperty ("followerTrack", "").toString());
+
+    for (const auto& m : modsTree)
+    {
+        if (! m.hasType (id::MOD)) continue;
+        auto targetNode = modsTree.getChildWithProperty (id::uid, m[id::target]);
+        if (! targetNode.isValid()) continue;
+        auto* param = resolveParamTarget (targetNode[id::track].toString(),
+                                          targetNode[id::param].toString());
+        if (param == nullptr) continue;
+
+        ModConn c;
+        c.param = param;
+        const String src = m[id::src].toString();
+        c.src = src == "lfo1" ? 0 : src == "lfo2" ? 1 : src == "lfo3" ? 2 : src == "lfo4" ? 3
+              : src == "chaos" ? 4 : 5;
+        c.amount = (float) (double) m.getProperty (id::amount, 0.5);
+        c.uid = m[id::uid].toString();
+        const float baseVal = m.hasProperty (id::base) ? (float) (double) m[id::base]
+                                                       : param->getValue();
+        c.base = std::make_shared<std::atomic<float>> (baseVal);
+        modListeners.push_back (std::make_unique<ModListener> (*this, param, c.base));
+        next->conns.push_back (std::move (c));
+    }
+
+    juce::SpinLock::ScopedLockType sl (modLock);
+    modGraveyard.push_back (pendingMods);
+    pendingMods = next;
+    if (rtMods == nullptr) rtMods = next;
+}
+
+void AudioEngine::applyMods (juce::int64 pos, int numSamples)
+{
+    {
+        juce::SpinLock::ScopedTryLockType tl (modLock);
+        if (tl.isLocked() && pendingMods != rtMods)
+            rtMods = pendingMods;
+    }
+    auto mods = rtMods;
+    if (mods == nullptr) return;
+
+    const double t = (double) pos / currentSR;
+    float vals[kNumModSources] {};
+
+    for (int i = 0; i < 4; ++i)
+    {
+        const double ph = t * mods->lfoRate[i];
+        const double frac = ph - std::floor (ph);
+        switch (mods->lfoShape[i])
+        {
+            case 1:  vals[i] = (float) (2.0 * frac - 1.0); break;                       // saw
+            case 2:  vals[i] = frac < 0.5 ? 1.0f : -1.0f; break;                        // square
+            case 3:  { const double h = std::sin (std::floor (ph) * 12.9898) * 43758.5453;   // s&h random
+                       vals[i] = (float) ((h - std::floor (h)) * 2.0 - 1.0); break; }
+            default: vals[i] = (float) std::sin (ph * juce::MathConstants<double>::twoPi); break;
+        }
+    }
+
+    // Lorenz x, the attractor as a mod source
+    {
+        const double dt = juce::jlimit (1.0e-5, 0.02, (double) numSamples / currentSR * mods->chaosRate * 4.0);
+        for (int step = 0; step < 4; ++step)
+        {
+            const double h = dt * 0.25;
+            const double dx = 10.0 * (lorenz[1] - lorenz[0]);
+            const double dy = lorenz[0] * (28.0 - lorenz[2]) - lorenz[1];
+            const double dz = lorenz[0] * lorenz[1] - (8.0 / 3.0) * lorenz[2];
+            lorenz[0] += dx * h; lorenz[1] += dy * h; lorenz[2] += dz * h;
+        }
+        vals[4] = juce::jlimit (-1.0f, 1.0f, (float) (lorenz[0] / 20.0));
+    }
+
+    if (mods->follower != nullptr)
+    {
+        const float pk = juce::jmax (mods->follower->peakL.load(), mods->follower->peakR.load());
+        followEnv += (pk > followEnv ? 0.5f : 0.02f) * (pk - followEnv);
+        vals[5] = juce::jlimit (0.0f, 1.0f, followEnv);
+    }
+
+    for (int i = 0; i < kNumModSources; ++i)
+        modSrcValues[(size_t) i].store (vals[i]);
+
+    if (mods->conns.empty()) return;
+    applyingAutomation = true;
+    for (const auto& c : mods->conns)
+    {
+        const float nv = juce::jlimit (0.0f, 1.0f, c.base->load() + c.amount * vals[c.src]);
+        if (std::abs (c.param->getValue() - nv) > 0.0008f)
+            c.param->setValueNotifyingHost (nv);
+    }
+    applyingAutomation = false;
+}
 
 void AudioEngine::detachAutomation()
 {
@@ -767,36 +931,10 @@ void AudioEngine::rebuildAutomation()
     {
         const String uid = t[id::uid];
         if (! trackNodes.count (uid)) continue;
-        auto& tn = trackNodes.at (uid);
 
         for (const auto& lane : t.getChildWithName (id::AUTO))
         {
-            const String target = lane[id::param];
-            juce::AudioProcessorParameter* param = nullptr;
-
-            if (target.startsWith ("strip:") && tn.strip != nullptr)
-            {
-                auto* st = static_cast<ChannelStripProcessor*> (tn.strip->getProcessor());
-                if (target == "strip:gain") param = st->gainDb;
-                else if (target == "strip:pan") param = st->pan;
-                else if (target == "strip:mute") param = st->mute;
-            }
-            else if (target == "send:A" && tn.sendA != nullptr)
-                param = static_cast<SendProcessor*> (tn.sendA->getProcessor())->levelDb;
-            else if (target == "send:B" && tn.sendB != nullptr)
-                param = static_cast<SendProcessor*> (tn.sendB->getProcessor())->levelDb;
-            else if (target.startsWith ("ins:"))
-            {
-                const String rest = target.fromFirstOccurrenceOf ("ins:", false, false);
-                const String iuid = rest.upToFirstOccurrenceOf (":", false, false);
-                const int pidx = rest.fromFirstOccurrenceOf (":", false, false).getIntValue();
-                if (auto* proc = getInsertProcessor (iuid))
-                {
-                    auto& params = proc->getParameters();
-                    if (pidx >= 0 && pidx < params.size())
-                        param = params[pidx];
-                }
-            }
+            auto* param = resolveParamTarget (uid, lane[id::param].toString());
             if (param == nullptr) continue;
 
             LaneRT rt;
@@ -1287,6 +1425,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* input, i
 
         setPlayheadAtomics (pos, playing);
         applyAutomation (pos);
+        applyMods (pos, len);
 
         for (int ch = 0; ch < chans; ++ch)
             segPtrs[ch] = scratch.getWritePointer (ch) + done;
@@ -1523,6 +1662,7 @@ void AudioEngine::processOffline (juce::AudioBuffer<float>& buf, juce::int64 pos
         const int len = juce::jmin (step, n - done);
         setPlayheadAtomics (posSamples + done, true);
         applyAutomation (posSamples + done);
+        applyMods (posSamples + done, len);
         float* ptrs[8];
         for (int ch = 0; ch < juce::jmin (8, chans); ++ch)
             ptrs[ch] = buf.getWritePointer (ch) + done;
@@ -1572,6 +1712,7 @@ void AudioEngine::timerCallback()
     purge (midiGraveyard);
     purge (mapGraveyard);
     purge (laneGraveyard);
+    purge (modGraveyard);
 }
 
 } // namespace dg
