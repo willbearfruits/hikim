@@ -12,6 +12,17 @@ MainComponent::MainComponent()
     opts.osxLibrarySubFolder = "Application Support";
     appProps.setStorageParameters (opts);
 
+    // restore design prefs before any view paints
+    auto* props = appProps.getUserSettings();
+    Look::get().setTheme (props->getBoolValue ("uiLight", false));
+    juce::Desktop::getInstance().setGlobalScaleFactor ((float) props->getDoubleValue ("uiScale", 1.0));
+    bottomH = props->getIntValue ("bottomH", 240);
+    ui.timelineHeaderW = props->getIntValue ("timelineHeaderW", 220);
+    ui.persistInt = [this] (const String& key, int v)
+    {
+        appProps.getUserSettings()->setValue (key, v);
+    };
+
     pluginHost = std::make_unique<PluginHost> (appProps.getUserSettings());
     engine = std::make_unique<AudioEngine> (session, *pluginHost, appProps.getUserSettings());
 
@@ -97,6 +108,15 @@ MainComponent::MainComponent()
         refreshTitle();
     };
 
+    bottomBar.onDragStart = [this] { bottomHAtDragStart = bottomH; };
+    bottomBar.onDrag = [this] (int dy)
+    {
+        bottomH = juce::jlimit (140, juce::jmax (200, getHeight() - 220), bottomHAtDragStart - dy);
+        appProps.getUserSettings()->setValue ("bottomH", bottomH);
+        resized();
+    };
+    addAndMakeVisible (bottomBar);
+
     startTimerHz (20);
     setSize (1500, 900);
 }
@@ -113,7 +133,8 @@ void MainComponent::resized()
 {
     auto b = getLocalBounds();
     transportBar->setBounds (b.removeFromTop (42));
-    bottomTabs.setBounds (b.removeFromBottom (juce::jmax (180, getHeight() / 4)));
+    bottomTabs.setBounds (b.removeFromBottom (juce::jlimit (140, juce::jmax (200, getHeight() - 220), bottomH)));
+    bottomBar.setBounds (b.removeFromBottom (7));
     timeline->setBounds (b);
     sessionGrid->setBounds (b);
     routingView->setBounds (b);
@@ -186,6 +207,16 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const String&)
         m.addItem (mAudioSettings, "Audio device settings...");
         m.addItem (mPluginManager, "Plugin manager...");
         m.addItem (mVideoWindow, "Video window...");
+        m.addSeparator();
+        m.addItem (mThemeLight, "Light theme", true, Look::get().isLight());
+        juce::PopupMenu scale;
+        const double cur = appProps.getUserSettings()->getDoubleValue ("uiScale", 1.0);
+        scale.addItem (mScale90, "90%", true, std::abs (cur - 0.9) < 0.01);
+        scale.addItem (mScale100, "100%", true, std::abs (cur - 1.0) < 0.01);
+        scale.addItem (mScale110, "110%", true, std::abs (cur - 1.1) < 0.01);
+        scale.addItem (mScale125, "125%", true, std::abs (cur - 1.25) < 0.01);
+        scale.addItem (mScale150, "150%", true, std::abs (cur - 1.5) < 0.01);
+        m.addSubMenu ("UI scale", scale);
     }
     return m;
 }
@@ -237,8 +268,34 @@ void MainComponent::menuItemSelected (int itemID, int)
         case mVideoWindow:
             showVideoWindow();
             break;
+        case mThemeLight: applyTheme (! Look::get().isLight()); break;
+        case mScale90:  applyScale (0.9); break;
+        case mScale100: applyScale (1.0); break;
+        case mScale110: applyScale (1.1); break;
+        case mScale125: applyScale (1.25); break;
+        case mScale150: applyScale (1.5); break;
         default: break;
     }
+}
+
+void MainComponent::applyTheme (bool light)
+{
+    Look::get().setTheme (light);
+    appProps.getUserSettings()->setValue ("uiLight", light);
+    juce::LookAndFeel::setDefaultLookAndFeel (&Look::get());   // re-broadcast to every component
+    auto& desktop = juce::Desktop::getInstance();
+    for (int i = 0; i < desktop.getNumComponents(); ++i)
+        if (auto* c = desktop.getComponent (i))
+        {
+            c->sendLookAndFeelChange();
+            c->repaint();
+        }
+}
+
+void MainComponent::applyScale (double scale)
+{
+    appProps.getUserSettings()->setValue ("uiScale", scale);
+    juce::Desktop::getInstance().setGlobalScaleFactor ((float) scale);
 }
 
 void MainComponent::showVideoWindow()

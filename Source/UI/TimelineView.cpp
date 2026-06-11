@@ -735,6 +735,8 @@ public:
         monBtn.setColour (juce::TextButton::buttonColourId, m == 0 ? col::panelHi : col::accent.darker (0.4f));
     }
 
+    void lookAndFeelChanged() override { updateMonText(); }
+
     void paint (juce::Graphics& g) override
     {
         const bool selected = tv.ui.selectedTrack == track[id::uid].toString();
@@ -1246,11 +1248,11 @@ void TimelineView::layoutRows()
     }
     const int w = juce::jmax (vp.getWidth(), (int) timeToX (contentLengthSec()));
     canvas->setSize (w, juce::jmax (y + 100, vp.getHeight()));
-    headerStrip.setSize (kHeaderW, canvas->getHeight());
+    headerStrip.setSize (headerW(), canvas->getHeight());
 
     for (size_t i = 0; i < rows.size(); ++i)
         if (i < (size_t) headers.size())
-            headers[(int) i]->setBounds (0, rows[i].y, kHeaderW, rows[i].h);
+            headers[(int) i]->setBounds (0, rows[i].y, headerW(), rows[i].h);
 
     layoutCanvasChildren();
 }
@@ -1665,12 +1667,19 @@ void TimelineView::resized()
 {
     auto b = getLocalBounds();
     auto top = b.removeFromTop (kRulerH);
-    toolbar->setBounds (top.removeFromLeft (kHeaderW));
+    toolbar->setBounds (top.removeFromLeft (headerW()));
     ruler->setBounds (top);
 
-    auto left = b.removeFromLeft (kHeaderW);
+    auto left = b.removeFromLeft (headerW());
     headerHolder.setBounds (left);
     vp.setBounds (b);
+    if (headerDivider == nullptr)
+    {
+        headerDivider = std::make_unique<HeaderDivider> (*this);
+        addAndMakeVisible (*headerDivider);
+    }
+    headerDivider->setBounds (headerW() - 3, kRulerH, 7, getHeight() - kRulerH);
+    headerDivider->toFront (false);
     layoutRows();
 }
 
@@ -1678,7 +1687,7 @@ void TimelineView::paint (juce::Graphics& g)
 {
     g.fillAll (col::bg);
     g.setColour (col::panel);
-    g.fillRect (0, 0, kHeaderW, kRulerH);
+    g.fillRect (0, 0, headerW(), kRulerH);
 }
 
 void TimelineView::timerCallback()

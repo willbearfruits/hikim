@@ -14,6 +14,9 @@ struct UIState
     Tool tool = Tool::select;               // timeline tool (keys 1/2/3)
     std::set<String> selectedClips;         // clip uids
     String selectedTrack;                   // uid; FX explorer double-click target
+    int timelineHeaderW = 220;              // draggable, persisted
+    std::function<void (const String& key, int value)> persistInt;
+
     std::function<void (ValueTree clip)> openPianoRoll;
     std::function<void (ValueTree clip)> openSampleEditor;
     std::function<void (const String& trackUid, const String& insertUid)> openInsertEditor;

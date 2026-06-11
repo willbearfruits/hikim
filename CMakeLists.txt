@@ -147,7 +147,8 @@ target_sources(ruin_tests PRIVATE
     Source/Rack/RackProcessor.cpp
     Source/Rack/RackEditor.cpp
     Source/Patcher/PatcherProcessor.cpp
-    Source/Patcher/PatcherEditor.cpp)
+    Source/Patcher/PatcherEditor.cpp
+    Source/UI/Look.cpp)
 target_include_directories(ruin_tests PRIVATE Source)
 target_compile_definitions(ruin_tests PRIVATE
     JUCE_WEB_BROWSER=0

@@ -66,8 +66,7 @@ public:
             std::cerr << "RUIN crashed:\n" << trace << std::endl;
         });
 
-        look = std::make_unique<Look>();
-        juce::LookAndFeel::setDefaultLookAndFeel (look.get());
+        juce::LookAndFeel::setDefaultLookAndFeel (&Look::get());
         window = std::make_unique<MainWindow>();
     }
 
@@ -75,13 +74,11 @@ public:
     {
         window.reset();
         juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
-        look.reset();
     }
 
     void systemRequestedQuit() override { quit(); }
 
 private:
-    std::unique_ptr<Look> look;
     std::unique_ptr<MainWindow> window;
 };
 

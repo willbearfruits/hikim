@@ -75,6 +75,12 @@ void TransportBar::updateToggleStates()
 
 void TransportBar::timerCallback()
 {
+    // re-apply palette colours so theme switches reach explicitly-coloured labels
+    posBars.setColour (juce::Label::textColourId, col::text);
+    posTime.setColour (juce::Label::textColourId, col::dim);
+    bpmLabel.setColour (juce::Label::textColourId, col::accent2);
+    cpuLabel.setColour (juce::Label::textColourId, col::dim);
+
     auto map = engine.getTempoMap();
     const auto pos = engine.getPositionSamples();
     posBars.setText (map->formatBarsBeats (pos), juce::dontSendNotification);

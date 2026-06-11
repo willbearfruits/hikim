@@ -96,7 +96,29 @@ private:
     std::vector<clipops::ClipboardItem> clipboard;
     std::unique_ptr<juce::Component> toolbar;
 
-    static constexpr int kHeaderW = 220;
+    int headerW() const { return juce::jlimit (150, 420, ui.timelineHeaderW); }
+
+    struct HeaderDivider : juce::Component
+    {
+        TimelineView& tv;
+        int startW = 0;
+        explicit HeaderDivider (TimelineView& t) : tv (t)
+        { setMouseCursor (juce::MouseCursor::LeftRightResizeCursor); }
+        void mouseDown (const juce::MouseEvent&) override { startW = tv.headerW(); }
+        void mouseDrag (const juce::MouseEvent& e) override
+        {
+            tv.ui.timelineHeaderW = juce::jlimit (150, 420, startW + e.getDistanceFromDragStartX());
+            if (tv.ui.persistInt) tv.ui.persistInt ("timelineHeaderW", tv.ui.timelineHeaderW);
+            tv.resized();
+        }
+        void paint (juce::Graphics& g) override
+        {
+            g.setColour (col::line);
+            g.fillRect (getLocalBounds().withSizeKeepingCentre (2, juce::jmin (60, getHeight())));
+        }
+    };
+    std::unique_ptr<HeaderDivider> headerDivider;
+
     static constexpr int kRulerH = 30;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TimelineView)

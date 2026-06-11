@@ -96,6 +96,10 @@ ASIO: drop the Steinberg ASIO SDK in and enable `JUCE_ASIO=1` in `CMakeLists.txt
 - Track header buttons: **M**ute, **S**olo, **R**ecord-arm, **MON** (off → direct dry →
   through the insert chain), **FX** (insert chain: add **TEETH**, add plugins,
   set instrument — built-ins: GlitchTone, RUST, GRAVEL, HYMN), **A** (automation lanes).
+- **Design**: *Options → Light theme* flips the whole app between brutal-dark and
+  paper-light; *Options → UI scale* (90–150%) resizes everything including fonts.
+  Drag the bar above the bottom panel to resize it; drag the divider at the right
+  edge of the track headers to widen them. All persisted.
 - First plugin scan: *Options → Plugin manager → Options → Scan for new...*
 - Project files are XML (`*.dgproj`); recorded audio lands in `<project>_Assets/`.
 

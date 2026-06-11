@@ -57,10 +57,28 @@ private:
         mNew = 1, mOpen, mSave, mSaveAs, mExport, mQuit,
         mUndo, mRedo,
         mAddAudio, mAddMidi, mAddBus, mAddVideo, mAddPatchTrack,
-        mAudioSettings, mPluginManager, mVideoWindow
+        mAudioSettings, mPluginManager, mVideoWindow,
+        mThemeLight, mScale90, mScale100, mScale110, mScale125, mScale150
+    };
+
+    // thin draggable divider (horizontal bar, vertical drag)
+    struct DragBar : juce::Component
+    {
+        std::function<void()> onDragStart;
+        std::function<void (int totalDy)> onDrag;
+        DragBar() { setMouseCursor (juce::MouseCursor::UpDownResizeCursor); }
+        void mouseDown (const juce::MouseEvent&) override { if (onDragStart) onDragStart(); }
+        void mouseDrag (const juce::MouseEvent& e) override { if (onDrag) onDrag (e.getDistanceFromDragStartY()); }
+        void paint (juce::Graphics& g) override
+        {
+            g.setColour (col::line);
+            g.fillRect (getLocalBounds().withSizeKeepingCentre (60, 3));
+        }
     };
 
     void toggleView();
+    void applyTheme (bool light);
+    void applyScale (double scale);
     void doNew();
     void doOpen();
     void doSave (bool saveAs);
@@ -86,6 +104,9 @@ private:
 
     std::unique_ptr<FloatingWindow> settingsWin, pluginWin, videoWin;
     std::map<String, std::unique_ptr<FloatingWindow>> editorWindows;   // by insert uid
+
+    DragBar bottomBar;
+    int bottomH = 240, bottomHAtDragStart = 240;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };
