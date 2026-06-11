@@ -1261,20 +1261,30 @@ void TimelineView::importFiles (const juce::StringArray& files, juce::Point<int>
         at = snap (juce::jmax (0.0, xToTime (canvasPt.x)));
 
     session.undo.beginNewTransaction ("import");
-    if (! track.isValid())
-        track = session.addTrack ("audio", "Audio");
 
+    juce::StringArray failed;
+    bool added = false;
     for (const auto& fpath : files)
     {
         std::unique_ptr<juce::AudioFormatReader> reader (engine.formatManager.createReaderFor (File (fpath)));
-        if (reader != nullptr)
+        if (reader == nullptr)
         {
-            const double len = (double) reader->lengthInSamples / reader->sampleRate;
-            session.addAudioClip (track, File (fpath), at, len, reader->sampleRate);
-            at += len;
+            failed.add (File (fpath).getFileName());
+            continue;
         }
+        if (! track.isValid())                      // never leave an empty track behind
+            track = session.addTrack ("audio", "Audio");
+        const double len = (double) reader->lengthInSamples / reader->sampleRate;
+        session.addAudioClip (track, File (fpath), at, len, reader->sampleRate);
+        at += len;
+        added = true;
     }
-    rebuild();
+
+    if (! failed.isEmpty())
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Import",
+            "No decoder for:\n" + failed.joinIntoString ("\n"));
+    if (added)
+        rebuild();
 }
 
 void TimelineView::applyFxToTrack (ValueTree track, const String& fxId)

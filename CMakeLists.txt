@@ -68,6 +68,7 @@ target_compile_definitions(dawglitch PRIVATE
     JUCE_USE_CURL=0
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:dawglitch,JUCE_PRODUCT_NAME>"
     JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:dawglitch,JUCE_VERSION>"
+    JUCE_USE_MP3AUDIOFORMAT=1       # mp3 decode on Linux (mac/win get it via OS codecs)
     JUCE_PLUGINHOST_VST3=1
     JUCE_PLUGINHOST_LV2=1
     JUCE_PLUGINHOST_AU=1            # only takes effect on macOS
