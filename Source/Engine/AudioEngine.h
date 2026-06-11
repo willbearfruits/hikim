@@ -357,7 +357,7 @@ private:
     std::unique_ptr<juce::AudioFormatWriter::ThreadedWriter> masterCaptureOwned;
 
     int rebuildFlags = 0;
-    juce::StringArray playlistDirtyTracks;
+    juce::StringArray playlistDirtyTracks, slotDirtyTracks;
     bool allPlaylistsDirty = false;
 
     JUCE_DECLARE_WEAK_REFERENCEABLE (AudioEngine)

@@ -301,7 +301,7 @@ struct InstrumentTests : juce::UnitTest
     InstrumentTests() : UnitTest ("BuiltinInstruments") {}
     void runTest() override
     {
-        for (auto* name : { "rust", "gravel", "hymn" })
+        for (auto* name : { "rust", "gravel", "hymn", "rubble" })
         {
             beginTest (String ("instrument: ") + name);
             auto inst = BuiltinInstrument::create (name);

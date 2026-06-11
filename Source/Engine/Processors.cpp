@@ -253,8 +253,110 @@ namespace
     };
 }
 
+namespace
+{
+    // RUBBLE: five synthesized drums, note-mapped GM-ish (36 kick, 38/40 snare,
+    // 39 clap, 42/44 closed hat, 46 open hat; anything else cycles all five)
+    struct KitVoice : public juce::SynthesiserVoice
+    {
+        explicit KitVoice (BuiltinInstrument& o) : owner (o) {}
+        enum class Drum { kick, snare, clap, chh, ohh };
+        bool canPlaySound (juce::SynthesiserSound*) override { return true; }
+
+        void startNote (int note, float vel, juce::SynthesiserSound*, int) override
+        {
+            switch (note)
+            {
+                case 35: case 36: drum = Drum::kick; break;
+                case 38: case 40: drum = Drum::snare; break;
+                case 39:          drum = Drum::clap; break;
+                case 42: case 44: drum = Drum::chh; break;
+                case 46:          drum = Drum::ohh; break;
+                default:          drum = (Drum) (note % 5); break;
+            }
+            level = vel;
+            t = 0; phase = 0; env = 1.0f; lp = 0; hp = 0;
+            const double tune = std::pow (2.0, owner.p1->get() / 12.0);
+            const float decayMul = owner.p2->get();
+            switch (drum)
+            {
+                case Drum::kick:  f0 = 120.0 * tune; f1 = 44.0 * tune; decay = 0.28f * decayMul; break;
+                case Drum::snare: f0 = 190.0 * tune; f1 = 160.0 * tune; decay = 0.16f * decayMul; break;
+                case Drum::clap:  f0 = 0; f1 = 0; decay = 0.22f * decayMul; break;
+                case Drum::chh:   f0 = 0; f1 = 0; decay = 0.05f * decayMul; break;
+                case Drum::ohh:   f0 = 0; f1 = 0; decay = 0.4f * decayMul; break;
+            }
+            envK = (float) std::exp (-1.0 / (decay * getSampleRate()));
+        }
+        void stopNote (float, bool) override {}     // drums always ring out
+        void pitchWheelMoved (int) override {} void controllerMoved (int, int) override {}
+
+        void renderNextBlock (juce::AudioBuffer<float>& out, int start, int n) override
+        {
+            if (env < 1.0e-4f) { if (getCurrentlyPlayingNote() != 0) clearCurrentNote(); return; }
+            const double sr = getSampleRate();
+            const float tone = owner.p3->get();
+            const float drive = juce::Decibels::decibelsToGain (owner.p4->get());
+
+            for (int i = 0; i < n; ++i)
+            {
+                float s = 0;
+                const float noise = rng.nextFloat() * 2.0f - 1.0f;
+                switch (drum)
+                {
+                    case Drum::kick:
+                    {
+                        const double f = f1 + (f0 - f1) * std::exp (-t * 28.0);
+                        phase += f / sr;
+                        s = (float) std::sin (phase * juce::MathConstants<double>::twoPi) * env
+                            + (t < 0.004 ? noise * 0.4f * env : 0.0f);
+                        break;
+                    }
+                    case Drum::snare:
+                    {
+                        phase += f0 / sr;
+                        lp += (0.12f + tone * 0.5f) * (noise - lp);
+                        s = ((float) std::sin (phase * juce::MathConstants<double>::twoPi) * 0.4f
+                             + lp * (0.7f + tone * 0.6f)) * env;
+                        break;
+                    }
+                    case Drum::clap:
+                    {
+                        // three retriggered bursts then the tail
+                        const float burst = (t < 0.010 || (t > 0.012 && t < 0.022) || (t > 0.025 && t < 0.035))
+                                                ? 1.0f : env;
+                        lp += (0.2f + tone * 0.4f) * (noise - lp);
+                        s = (noise - lp) * burst * 0.9f;
+                        break;
+                    }
+                    case Drum::chh:
+                    case Drum::ohh:
+                    {
+                        hp += (0.5f + tone * 0.35f) * (noise - hp);
+                        s = (noise - hp) * env;     // highpassed metal-ish noise
+                        break;
+                    }
+                }
+                env *= envK;
+                t += 1.0 / sr;
+                s = std::tanh (s * drive * level) * 0.8f;
+                for (int ch = 0; ch < out.getNumChannels(); ++ch)
+                    out.addSample (ch, start + i, s);
+            }
+            if (env < 1.0e-4f) clearCurrentNote();
+        }
+
+        BuiltinInstrument& owner;
+        juce::Random rng;
+        Drum drum = Drum::kick;
+        double f0 = 100, f1 = 50, phase = 0, t = 0;
+        float level = 0, env = 0, envK = 0.99f, decay = 0.2f, lp = 0, hp = 0;
+    };
+}
+
 BuiltinInstrument::BuiltinInstrument (Kind k)
-    : BasicProcessor (k == Kind::rust ? "RUST (built-in)" : k == Kind::gravel ? "GRAVEL (built-in)" : "HYMN (built-in)",
+    : BasicProcessor (k == Kind::rust ? "RUST (built-in)" : k == Kind::gravel ? "GRAVEL (built-in)"
+                      : k == Kind::hymn ? "HYMN (built-in)" : "RUBBLE (built-in)",
                       true, false),
       kind (k)
 {
@@ -280,13 +382,21 @@ BuiltinInstrument::BuiltinInstrument (Kind k)
         addParameter (p4 = new juce::AudioParameterFloat ({ "unused", 1 }, "-", range (0.0f, 1.0f), 0.0f));
         for (int i = 0; i < 12; ++i) synth.addVoice (new GravelVoice (*this));
     }
-    else
+    else if (kind == Kind::hymn)
     {
         addParameter (p1 = new juce::AudioParameterFloat ({ "cutoff", 1 }, "Cutoff Hz", range (100.0f, 12000.0f, 1800.0f), 2200.0f));
         addParameter (p2 = new juce::AudioParameterFloat ({ "attack", 1 }, "Attack s", range (0.01f, 3.0f, 0.6f), 0.8f));
         addParameter (p3 = new juce::AudioParameterFloat ({ "release", 1 }, "Release s", range (0.1f, 8.0f, 2.0f), 2.5f));
         addParameter (p4 = new juce::AudioParameterFloat ({ "detune", 1 }, "Detune ct", range (0.0f, 30.0f), 10.0f));
         for (int i = 0; i < 10; ++i) synth.addVoice (new HymnVoice (*this));
+    }
+    else // kit
+    {
+        addParameter (p1 = new juce::AudioParameterFloat ({ "tune", 1 }, "Tune st", range (-12.0f, 12.0f), 0.0f));
+        addParameter (p2 = new juce::AudioParameterFloat ({ "decay", 1 }, "Decay x", range (0.3f, 2.5f), 1.0f));
+        addParameter (p3 = new juce::AudioParameterFloat ({ "tone", 1 }, "Tone", range (0.0f, 1.0f), 0.5f));
+        addParameter (p4 = new juce::AudioParameterFloat ({ "drive", 1 }, "Drive dB", range (0.0f, 24.0f), 4.0f));
+        for (int i = 0; i < 10; ++i) synth.addVoice (new KitVoice (*this));
     }
     synth.addSound (new AnySound());
 }
@@ -296,6 +406,7 @@ std::unique_ptr<juce::AudioProcessor> BuiltinInstrument::create (const String& n
     if (name == "rust")   return std::make_unique<BuiltinInstrument> (Kind::rust);
     if (name == "gravel") return std::make_unique<BuiltinInstrument> (Kind::gravel);
     if (name == "hymn")   return std::make_unique<BuiltinInstrument> (Kind::hymn);
+    if (name == "rubble") return std::make_unique<BuiltinInstrument> (Kind::kit);
     return nullptr;
 }
 

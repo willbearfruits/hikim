@@ -7,7 +7,7 @@ namespace dg
 
 namespace rebuild
 {
-    enum { graph = 1, tempo = 2, flags = 4, automation = 8, transport = 16, playlists = 32, mods = 64 };
+    enum { graph = 1, tempo = 2, flags = 4, automation = 8, transport = 16, playlists = 32, mods = 64, slots = 128 };
 }
 
 AudioEngine::AudioEngine (SessionModel& s, PluginHost& ph, juce::PropertiesFile* props)
@@ -98,6 +98,28 @@ void AudioEngine::handleAsyncUpdate()
         if (f & rebuild::automation) rebuildAutomation();
         if (f & rebuild::mods)       rebuildMods();
     }
+    if (f & rebuild::slots)
+    {
+        // re-launch edited slots (quantized) so loop length / region edits are heard
+        for (const auto& uid : slotDirtyTracks)
+        {
+            auto track = session.findTrack (uid);
+            if (! track.isValid()) continue;
+            const auto st = getSessionState (uid);
+            const String target = st.pending.isNotEmpty() ? st.pending : st.playing;
+            if (target.isEmpty()) continue;
+            for (const auto& slot : SessionModel::slotsOf (track))
+            {
+                auto clip = slot.getChildWithName (id::CLIP);
+                if (clip.isValid() && clip[id::uid].toString() == target)
+                {
+                    launchSlot (track, clip);
+                    break;
+                }
+            }
+        }
+        slotDirtyTracks.clear();
+    }
     if (f & rebuild::transport)  updateTransportFromTree();
     allPlaylistsDirty = false;
     playlistDirtyTracks.clear();
@@ -159,11 +181,16 @@ void AudioEngine::valueTreePropertyChanged (ValueTree& tree, const Identifier& p
     if (tree.hasType (id::CLIP) || tree.hasType (id::NOTE))
     {
         auto track = findParentOfType (tree, id::TRACK);
-        if (track.isValid())
+        if (! track.isValid()) return;
+        if (findParentOfType (tree, id::SLOT).isValid())
         {
-            playlistDirtyTracks.addIfNotAlreadyThere (track[id::uid].toString());
-            scheduleRebuild (rebuild::playlists);
+            // editing a session slot clip: refresh its live loop
+            slotDirtyTracks.addIfNotAlreadyThere (track[id::uid].toString());
+            scheduleRebuild (rebuild::slots);
+            return;
         }
+        playlistDirtyTracks.addIfNotAlreadyThere (track[id::uid].toString());
+        scheduleRebuild (rebuild::playlists);
         return;
     }
     if (tree.hasType (id::LANE) || tree.hasType (id::PT))
@@ -179,11 +206,15 @@ void AudioEngine::valueTreeChildAdded (ValueTree& parent, ValueTree& child)
     if (child.hasType (id::CLIP) || child.hasType (id::NOTE) || parent.hasType (id::CLIPS) || parent.hasType (id::NOTES))
     {
         auto track = findParentOfType (parent, id::TRACK);
-        if (track.isValid())
+        if (! track.isValid()) return;
+        if (findParentOfType (parent, id::SLOT).isValid() || parent.hasType (id::SLOT))
         {
-            playlistDirtyTracks.addIfNotAlreadyThere (track[id::uid].toString());
-            scheduleRebuild (rebuild::playlists);
+            slotDirtyTracks.addIfNotAlreadyThere (track[id::uid].toString());
+            scheduleRebuild (rebuild::slots);
+            return;
         }
+        playlistDirtyTracks.addIfNotAlreadyThere (track[id::uid].toString());
+        scheduleRebuild (rebuild::playlists);
         return;
     }
     if (child.hasType (id::LANE) || child.hasType (id::PT))

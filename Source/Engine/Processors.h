@@ -87,11 +87,11 @@ private:
 
 // Native instruments so MIDI tracks have voices without any plugins installed:
 //   RUST   - 2-op FM bell/metal     GRAVEL - noise percussion with pitch thump
-//   HYMN   - detuned-saw pad (the sentimental one)
+//   HYMN   - detuned-saw pad        RUBBLE - drum kit (kick/snare/clap/hats)
 class BuiltinInstrument : public BasicProcessor
 {
 public:
-    enum class Kind { rust, gravel, hymn };
+    enum class Kind { rust, gravel, hymn, kit };
     explicit BuiltinInstrument (Kind k);
     static std::unique_ptr<juce::AudioProcessor> create (const String& name);  // "rust" | "gravel" | "hymn"
 
