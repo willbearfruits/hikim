@@ -55,7 +55,11 @@ ASIO: drop the Steinberg ASIO SDK in and enable `JUCE_ASIO=1` in `CMakeLists.txt
   **Ctrl+S** save - **Ctrl+E** export - **Ctrl+wheel** zoom.
 - Timeline tools (toolbar top-left, or keys **1/2/3**): **select** (arrow),
   **razor** (click a clip to split there), **erase** (click a clip to delete it).
-- **Tab** (or V) flips **SESSION** ↔ **ARRANGE**. The session grid: tracks as columns,
+- **Three modes, one session**: **ARRANGE** (timeline) → **SESSION** (launch grid) →
+  **PATCHER** (channels as boxes: real routing as cables — drag output/send ports onto
+  buses, drag mod sources onto channels, click device chips to open editors,
+  double-click for new tracks). Tab / V / the transport view button cycles.
+- The session grid: tracks as columns,
   scenes as rows; click a slot to launch it quantized (combo top-right, default 1 bar);
   clips loop in sync until the track's stop square or STOP ALL; scene ▶ fires a row.
   Click an empty MIDI cell to create a loop and edit it in the piano roll; drop audio
@@ -76,12 +80,14 @@ ASIO: drop the Steinberg ASIO SDK in and enable `JUCE_ASIO=1` in `CMakeLists.txt
 - **Double-click any audio clip** (arrange or session) → the **SAMPLE** tab: full-file
   waveform with the used region highlighted — slide it, trim either edge, gain/fades,
   pitch-lock, conform-to-tempo, preview. Double-click MIDI clips → piano roll, as ever.
-- **WIRES** (FX menu → *Add WIRES*): a Max-style patcher as a device. Double-click the
-  canvas, type an object (`osc~ 220`, `lores~ 800 0.7`, `delay~ 250 0.6`...), cable
-  outlets (bottom) to inlets (top). Objects: adc~ dac~ osc~ phasor~ noise~ lfo~ *~ +~
-  lores~ hipass~ delay~ tanh~ sah~ env~ metro random scale sig param oscin oscout.
-  `param N` surfaces knobs P1-8 (automatable + PATCH-moddable); `oscin/oscout` talk
-  OSC (SuperCollider bridge). Feedback is legal through delay~.
+- **WIRES**: a Max-style patcher, two ways in — as a device (FX menu → *Add WIRES*) or
+  as a **channel** (*Track → Add WIRES track*, or *Set instrument → WIRES* on any MIDI
+  track: the patch IS the sound source). The editor has an object palette on the left
+  (click to place, drag to position, with descriptions + default args), or double-click
+  the canvas and type (`osc~ 220`, `delay~ 250 0.6`...). Cable outlets (bottom) to
+  inlets (top) — inlets glow while you drag. `param N` surfaces knobs P1-8
+  (automatable + PATCH-moddable); `oscin/oscout` talk OSC (SuperCollider bridge);
+  feedback is legal through delay~.
 - **CHAIN** tab: the selected track's devices as boxes (power, edit, reorder, remove;
   TEETH boxes carry live macro knobs). **PATCH** tab: the modulation bay — drag cables
   from LFOs / CHAOS (Lorenz) / FOLLOW (envelope follower) onto any parameter

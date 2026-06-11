@@ -507,7 +507,11 @@ void AudioEngine::instantiateInsert (const ValueTree& insert, double sr, int blo
         const String ident = insert[id::ident];
         if (ident.startsWith ("builtin:"))
         {
-            proc = BuiltinInstrument::create (ident.fromFirstOccurrenceOf ("builtin:", false, false));
+            const String which = ident.fromFirstOccurrenceOf ("builtin:", false, false);
+            if (which == "wires")
+                proc = std::make_unique<PatcherProcessor>();    // a track that IS a patch
+            else
+                proc = BuiltinInstrument::create (which);
             if (proc != nullptr && insert.hasProperty (id::state))
             {
                 juce::MemoryBlock mb;

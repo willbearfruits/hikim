@@ -105,6 +105,7 @@ void FxExplorer::refresh()
     if (matches ("gravel"))     entries.push_back ({ "GRAVEL  - noise percussion", "fx:builtin:gravel" });
     if (matches ("hymn"))       entries.push_back ({ "HYMN  - detuned pad", "fx:builtin:hymn" });
     if (matches ("rubble"))     entries.push_back ({ "RUBBLE  - drum kit", "fx:builtin:rubble" });
+    if (matches ("wires"))      entries.push_back ({ "WIRES  - a patch as the instrument", "fx:builtin:wires" });
 
     auto types = host.knownList.getTypes();
     if (types.size() > 0)

@@ -22,7 +22,13 @@ MainComponent::MainComponent()
     addAndMakeVisible (*timeline);
 
     sessionGrid = std::make_unique<SessionGrid> (*engine, session, ui);
-    addChildComponent (*sessionGrid);          // Tab / V / transport button flips views
+    addChildComponent (*sessionGrid);          // Tab / V / transport button cycles views
+    routingView = std::make_unique<RoutingView> (*engine, session, ui);
+    addChildComponent (*routingView);
+    routingView->showFxMenu = [this] (ValueTree track, juce::Component* target)
+    {
+        timeline->showTrackFxMenu (track, target);
+    };
     transportBar->onToggleView = [this] { toggleView(); };
     transportBar->setViewLabel ("SESSION");
 
@@ -106,8 +112,10 @@ void MainComponent::resized()
     bottomTabs.setBounds (b.removeFromBottom (juce::jmax (180, getHeight() / 4)));
     timeline->setBounds (b);
     sessionGrid->setBounds (b);
-    timeline->setVisible (! showSession);
-    sessionGrid->setVisible (showSession);
+    routingView->setBounds (b);
+    timeline->setVisible (viewMode == 0);
+    sessionGrid->setVisible (viewMode == 1);
+    routingView->setVisible (viewMode == 2);
 }
 
 // ---------------------------------------------------------------- timer: automation write drain
@@ -165,6 +173,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const String&)
     {
         m.addItem (mAddAudio, "Add audio track");
         m.addItem (mAddMidi, "Add MIDI/instrument track");
+        m.addItem (mAddPatchTrack, "Add WIRES track (a channel that is a patch)");
         m.addItem (mAddBus, "Add bus");
         m.addItem (mAddVideo, "Add video track");
     }
@@ -193,6 +202,16 @@ void MainComponent::menuItemSelected (int itemID, int)
         case mAddMidi: session.undo.beginNewTransaction ("add track"); session.addTrack ("midi", "Inst " + String (session.tracks().getNumChildren())); break;
         case mAddBus: session.undo.beginNewTransaction ("add track"); session.addTrack ("bus", "Bus " + String (session.tracks().getNumChildren())); break;
         case mAddVideo: session.undo.beginNewTransaction ("add track"); session.addTrack ("video", "VIDEO"); break;
+        case mAddPatchTrack:
+        {
+            session.undo.beginNewTransaction ("add wires track");
+            auto t = session.addTrack ("midi", "WIRES " + String (session.tracks().getNumChildren()));
+            auto ins = session.addInsert (t, "instrument");
+            ins.setProperty (id::ident, "builtin:wires", &session.undo);
+            ins.setProperty (id::name, names::patcherName, &session.undo);
+            ui.selectedTrack = t[id::uid].toString();
+            break;
+        }
         case mAudioSettings:
             if (settingsWin == nullptr)
             {
@@ -281,8 +300,9 @@ void MainComponent::selectTab (const String& name)
 
 void MainComponent::toggleView()
 {
-    showSession = ! showSession;
-    transportBar->setViewLabel (showSession ? "ARRANGE" : "SESSION");   // the button names the destination
+    viewMode = (viewMode + 1) % 3;          // arrange -> session -> patcher -> ...
+    static const char* next[] = { "SESSION", "PATCHER", "ARRANGE" };
+    transportBar->setViewLabel (next[viewMode]);    // the button names the destination
     resized();
 }
 

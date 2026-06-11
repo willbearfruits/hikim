@@ -11,17 +11,27 @@ static const Identifier kArgs ("args"), kSrcPort ("srcPort"), kDstPort ("dstPort
 const std::vector<PatcherProcessor::Spec>& PatcherProcessor::specs()
 {
     static const std::vector<Spec> s = {
-        { "adc~", oAdc, 0, 2 },     { "dac~", oDac, 2, 0 },
-        { "osc~", oOsc, 1, 1 },     { "phasor~", oPhasor, 1, 1 },
-        { "noise~", oNoise, 0, 1 }, { "lfo~", oLfo, 1, 1 },
-        { "*~", oMul, 2, 1 },       { "+~", oAdd, 2, 1 },
-        { "lores~", oLores, 2, 1 }, { "hipass~", oHipass, 1, 1 },
-        { "delay~", oDelay, 2, 1 }, { "tanh~", oTanh, 1, 1 },
-        { "sah~", oSah, 2, 1 },     { "env~", oEnv, 1, 1 },
-        { "metro", oMetro, 1, 1 },  { "random", oRandom, 1, 1 },
-        { "scale", oScale, 1, 1 },  { "sig", oSig, 0, 1 },
-        { "param", oParam, 0, 1 },  { "oscin", oOscIn, 0, 1 },
-        { "oscout", oOscOut, 1, 0 },
+        { "adc~", oAdc, 0, 2, "", "track audio in (L R)" },
+        { "dac~", oDac, 2, 0, "", "to the track output" },
+        { "osc~", oOsc, 1, 1, "220", "sine osc (freq)" },
+        { "phasor~", oPhasor, 1, 1, "2", "ramp 0..1 (freq)" },
+        { "noise~", oNoise, 0, 1, "", "white noise" },
+        { "lfo~", oLfo, 1, 1, "1 0", "lfo -1..1 (rate, shape 0-3)" },
+        { "*~", oMul, 2, 1, "0.5", "multiply (in2 or arg)" },
+        { "+~", oAdd, 2, 1, "0", "add (in2 or arg)" },
+        { "lores~", oLores, 2, 1, "800 0.5", "resonant lowpass (cutoff, res)" },
+        { "hipass~", oHipass, 1, 1, "120", "highpass (cutoff)" },
+        { "delay~", oDelay, 2, 1, "250 0.5", "delay (ms, feedback) - loops ok" },
+        { "tanh~", oTanh, 1, 1, "4", "saturate (drive)" },
+        { "sah~", oSah, 2, 1, "", "sample & hold (sig, trig)" },
+        { "env~", oEnv, 1, 1, "5 120", "envelope follower (atk, rel ms)" },
+        { "metro", oMetro, 1, 1, "2", "pulse train (hz)" },
+        { "random", oRandom, 1, 1, "", "random 0..1 on trigger" },
+        { "scale", oScale, 1, 1, "0 1", "map 0..1 to (lo, hi)" },
+        { "sig", oSig, 0, 1, "0.5", "constant value" },
+        { "param", oParam, 0, 1, "1", "host knob P1-8" },
+        { "oscin", oOscIn, 0, 1, "9000 /ruin", "OSC receive (port, /addr)" },
+        { "oscout", oOscOut, 1, 0, "127.0.0.1 57120 /ruin/out", "OSC send (host, port, /addr)" },
     };
     return s;
 }
@@ -45,8 +55,8 @@ PatcherProcessor::PatcherProcessor()
 
     // starter patch: adc~ wired straight to dac~ so inserting WIRES is
     // passthrough until you patch something in between
-    auto adc = addNode ("adc~", 40, 60);
-    auto dac = addNode ("dac~", 40, 260);
+    auto adc = addNode ("adc~", 220, 70);
+    auto dac = addNode ("dac~", 220, 300);
     addCable (adc[id::uid].toString(), 0, dac[id::uid].toString(), 0);
     addCable (adc[id::uid].toString(), 1, dac[id::uid].toString(), 1);
 

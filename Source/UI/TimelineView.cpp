@@ -1504,6 +1504,7 @@ void TimelineView::showTrackFxMenu (ValueTree track, juce::Component* target)
         instMenu.addItem (4, "GRAVEL - noise percussion");
         instMenu.addItem (5, "HYMN - detuned pad");
         instMenu.addItem (6, "RUBBLE - drum kit");
+        instMenu.addItem (7, String ("WIRES - a patch as the instrument"));
         instMenu.addSeparator();
         int instId = 9000;
         juce::Array<juce::PluginDescription> instruments;
@@ -1533,9 +1534,9 @@ void TimelineView::showTrackFxMenu (ValueTree track, juce::Component* target)
             ins.setProperty (id::name, names::patcherName, &session.undo);
             return;
         }
-        if (r >= 2 && r <= 6)   // built-in instruments
+        if (r >= 2 && r <= 7)   // built-in instruments
         {
-            static const char* kBuiltins[] = { "glitchtone", "rust", "gravel", "hymn", "rubble" };
+            static const char* kBuiltins[] = { "glitchtone", "rust", "gravel", "hymn", "rubble", "wires" };
             applyFxToTrack (track, "fx:builtin:" + String (kBuiltins[r - 2]));
             return;
         }

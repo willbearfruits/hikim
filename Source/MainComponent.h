@@ -12,6 +12,7 @@
 #include "UI/PatchView.h"
 #include "UI/SessionGrid.h"
 #include "UI/SampleEditor.h"
+#include "UI/RoutingView.h"
 
 namespace dg
 {
@@ -55,7 +56,7 @@ private:
     {
         mNew = 1, mOpen, mSave, mSaveAs, mExport, mQuit,
         mUndo, mRedo,
-        mAddAudio, mAddMidi, mAddBus, mAddVideo,
+        mAddAudio, mAddMidi, mAddBus, mAddVideo, mAddPatchTrack,
         mAudioSettings, mPluginManager, mVideoWindow
     };
 
@@ -71,7 +72,8 @@ private:
     std::unique_ptr<TransportBar> transportBar;
     std::unique_ptr<TimelineView> timeline;
     std::unique_ptr<SessionGrid> sessionGrid;
-    bool showSession = false;
+    std::unique_ptr<RoutingView> routingView;
+    int viewMode = 0;                       // 0 arrange, 1 session, 2 patcher
     juce::TabbedComponent bottomTabs { juce::TabbedButtonBar::TabsAtTop };
     std::unique_ptr<MixerView> mixer;
     std::unique_ptr<PianoRoll> pianoRoll;

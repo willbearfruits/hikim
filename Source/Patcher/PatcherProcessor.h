@@ -24,7 +24,7 @@ public:
         oDelay, oTanh, oSah, oEnv, oMetro, oRandom, oScale, oSig, oParam,
         oOscIn, oOscOut, oUnknown
     };
-    struct Spec { const char* name; Obj type; int ins, outs; };
+    struct Spec { const char* name; Obj type; int ins, outs; const char* defaults; const char* desc; };
     static const std::vector<Spec>& specs();
     static Obj parseType (const String& name);
 

@@ -38,11 +38,13 @@ public:
         g.drawText ((type + " " + node[kArgs].toString()).trim(),
                     getLocalBounds().reduced (6, 0), juce::Justification::centredLeft);
 
-        // inlets (top) / outlets (bottom)
-        g.setColour (col::text);
+        // inlets (top) / outlets (bottom); inlets glow while a cable is dragging
         const int ins = portCount (type, false), outs = portCount (type, true);
+        g.setColour (editor.isCableDragging() && ins > 0 ? col::play : col::text);
         for (int i = 0; i < ins; ++i)
-            g.fillRect (portX (i, ins) - 4, 0, 8, 4);
+            g.fillRect (portX (i, ins) - (editor.isCableDragging() ? 6 : 4), 0,
+                        editor.isCableDragging() ? 12 : 8, editor.isCableDragging() ? 6 : 4);
+        g.setColour (col::text);
         for (int o = 0; o < outs; ++o)
             g.fillRect (portX (o, outs) - 4, getHeight() - 4, 8, 4);
     }
@@ -143,6 +145,70 @@ private:
     bool dragging = false;
 };
 
+// =========================================================================== ObjPalette
+class PatcherEditor::ObjPalette : public juce::Component, private juce::ListBoxModel
+{
+public:
+    explicit ObjPalette (PatcherEditor& ed) : editor (ed)
+    {
+        title.setText ("OBJECTS", juce::dontSendNotification);
+        title.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
+        title.setColour (juce::Label::textColourId, col::accent2);
+        addAndMakeVisible (title);
+        list.setModel (this);
+        list.setRowHeight (30);
+        list.setColour (juce::ListBox::backgroundColourId, col::panel);
+        addAndMakeVisible (list);
+    }
+
+    int getNumRows() override { return (int) PatcherProcessor::specs().size(); }
+
+    void paintListBoxItem (int row, juce::Graphics& g, int w, int h, bool selected) override
+    {
+        if (row < 0 || row >= getNumRows()) return;
+        const auto& s = PatcherProcessor::specs()[(size_t) row];
+        if (selected) { g.setColour (col::accent.withAlpha (0.2f)); g.fillRect (0, 0, w, h); }
+        g.setColour (String (s.name).endsWith ("~") ? col::accent : col::accent2);
+        g.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::bold)));
+        g.drawText (s.name, 6, 1, w - 10, 14, juce::Justification::left);
+        g.setColour (col::dim);
+        g.setFont (juce::Font (juce::FontOptions (9.5f)));
+        g.drawText (s.desc, 6, 15, w - 10, 12, juce::Justification::left);
+    }
+
+    juce::var getDragSourceDescription (const juce::SparseSet<int>& rows) override
+    {
+        if (rows.size() > 0)
+            return "obj:" + String (PatcherProcessor::specs()[(size_t) rows[0]].name);
+        return {};
+    }
+
+    void listBoxItemClicked (int row, const juce::MouseEvent& e) override
+    {
+        if (e.mouseWasClicked() && row >= 0)
+            editor.placeObject (PatcherProcessor::specs()[(size_t) row].name, { -1, -1 });
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (col::panel);
+        g.setColour (col::line);
+        g.drawVerticalLine (getWidth() - 1, 0, (float) getHeight());
+    }
+
+    void resized() override
+    {
+        auto b = getLocalBounds();
+        title.setBounds (b.removeFromTop (18).reduced (6, 0));
+        list.setBounds (b);
+    }
+
+private:
+    PatcherEditor& editor;
+    juce::Label title;
+    juce::ListBox list;
+};
+
 // =========================================================================== PatcherEditor
 
 PatcherEditor::PatcherEditor (PatcherProcessor& p)
@@ -172,10 +238,11 @@ PatcherEditor::PatcherEditor (PatcherProcessor& p)
     objEntry.onFocusLost = [this] { objEntry.setVisible (false); };
     addChildComponent (objEntry);
 
-    String names;
-    for (const auto& s : PatcherProcessor::specs())
-        names += String (s.name) + "  ";
-    hint.setText ("double-click: new object  |  " + names, juce::dontSendNotification);
+    palette = std::make_unique<ObjPalette> (*this);
+    addAndMakeVisible (*palette);
+
+    hint.setText ("click or drag an object from the palette - or double-click the canvas and type",
+                  juce::dontSendNotification);
     hint.setFont (juce::Font (juce::FontOptions (10.0f)));
     hint.setColour (juce::Label::textColourId, col::dim);
     addAndMakeVisible (hint);
@@ -211,11 +278,31 @@ void PatcherEditor::rebuildNodes()
               + n[id::uid].toString().hashCode() + n[id::type].toString().hashCode();
         if (! n.hasType (kNodeId)) continue;
         auto* nc = nodeComps.add (new NodeComp (*this, n));
-        nc->setTopLeftPosition ((int) n.getProperty (id::x, 40), (int) n.getProperty (id::y, 40));
+        nc->setTopLeftPosition (juce::jmax (kPaletteW + 4, (int) n.getProperty (id::x, kPaletteW + 40)),
+                                (int) n.getProperty (id::y, 70));
         addAndMakeVisible (nc);
     }
+    if (palette != nullptr)
+        palette->toFront (false);
     lastPatchHash = h;
     repaint();
+}
+
+void PatcherEditor::placeObject (const String& specName, juce::Point<int> pos)
+{
+    String text = specName;
+    for (const auto& s : PatcherProcessor::specs())
+        if (specName == s.name && s.defaults[0] != 0)
+            text += " " + String (s.defaults);
+
+    if (pos.x < kPaletteW)      // palette click: cascade into the canvas
+    {
+        pos = { kPaletteW + 40 + (placeStagger % 4) * 130,
+                90 + ((placeStagger / 4) % 5) * 70 };
+        ++placeStagger;
+    }
+    patcher.addNode (text, juce::jmax (kPaletteW + 4, pos.x), juce::jmax (60, pos.y));
+    rebuildNodes();
 }
 
 juce::Point<float> PatcherEditor::outletPos (const String& uid, int port) const
@@ -354,14 +441,17 @@ void PatcherEditor::resized()
 {
     auto b = getLocalBounds();
     auto top = b.removeFromTop (54).reduced (6, 2);
-    const int kw = juce::jmin (64, top.getWidth() / 8);
+    top.removeFromLeft (kPaletteW);
+    const int kw = juce::jmin (64, juce::jmax (30, top.getWidth() / 8));
     for (int i = 0; i < 8; ++i)
     {
         auto cell = top.removeFromLeft (kw);
         pLabels[i].setBounds (cell.removeFromBottom (12));
         pKnobs[i].setBounds (cell);
     }
-    hint.setBounds (getLocalBounds().removeFromBottom (18).reduced (6, 0));
+    if (palette != nullptr)
+        palette->setBounds (0, 0, kPaletteW, getHeight() - 18);
+    hint.setBounds (getLocalBounds().removeFromBottom (18).reduced (kPaletteW + 6, 0));
 }
 
 } // namespace dg

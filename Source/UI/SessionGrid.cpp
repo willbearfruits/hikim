@@ -138,7 +138,7 @@ void SessionGrid::paint (juce::Graphics& g)
     // top bar label
     g.setColour (col::dim);
     g.setFont (juce::Font (juce::FontOptions (11.0f)));
-    g.drawText ("SESSION  -  Tab / V / the SESSION button flips views", 8, 0, 400, kBarH, juce::Justification::centredLeft);
+    g.drawText ("SESSION  -  Tab / V / the view button cycles ARRANGE > SESSION > PATCHER", 8, 0, 420, kBarH, juce::Justification::centredLeft);
 
     // drop-target highlight while dragging files over the grid
     if (dragActive && dragHover.x >= 0)
