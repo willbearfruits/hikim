@@ -26,7 +26,7 @@ namespace dg::id
     // clip props (start/length/offset in engine samples; midi notes in beats)
     DG_ID (start)     DG_ID (length)    DG_ID (offset)   DG_ID (file)
     DG_ID (lane)      DG_ID (fadeIn)    DG_ID (fadeOut)  DG_ID (clipGain)
-    DG_ID (stretch)   DG_ID (fileSR)
+    DG_ID (stretch)   DG_ID (stretchMode) DG_ID (fileSR)   // stretchMode: 0 varispeed, 1 pitch-locked
 
     // tempo map
     DG_ID (beat)      DG_ID (bpm)       DG_ID (num)      DG_ID (den)

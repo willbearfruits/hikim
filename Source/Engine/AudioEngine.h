@@ -4,6 +4,7 @@
 #include "Processors.h"
 #include "ClipPlayer.h"
 #include "MidiSource.h"
+#include "StretchCache.h"
 
 namespace dg
 {
@@ -121,6 +122,7 @@ public:
     juce::AudioFormatManager formatManager;        // audio file formats
     juce::AudioThumbnailCache thumbCache { 256 };
     juce::AudioProcessorGraph graph;
+    std::unique_ptr<StretchCache> stretchCache;
 
 private:
     struct TrackNodes

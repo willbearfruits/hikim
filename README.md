@@ -69,7 +69,8 @@ ever want different names: `Source/Common.h` → `dg::names::appName` / `rackNam
 
 ## What's deliberately minimal (marked `// EXTEND:` in source)
 
-- Time-stretch is varispeed (rate change affects pitch) — RubberBand/SoundTouch slot is marked.
+- Time-stretch: varispeed by default; right-click a clip → *Pitch-locked stretch (RubberBand)*
+  renders the stretch in the background and swaps in seamlessly. Live RT stretch is the marked slot.
 - Take comping: takes stack in lanes, "promote take" swaps lanes; no crossfade comping yet.
 - Plugin scanning runs in-process (async, with crash blacklist); out-of-process marked.
 - Video decoding on Linux (sync logic + frame counter run everywhere; mac/win play video).

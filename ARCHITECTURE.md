@@ -61,6 +61,9 @@ so the audio thread never frees memory (readers especially).
   (disk thread, zero-timeout), linear-interp varispeed for file-SR conversion + stretch,
   fades/gain per sample. Also captures input: monitor-through-chain feeds input into the
   insert chain; recording writes through a `ThreadedWriter` owned by a `RecordSession`.
+- **StretchCache**: pitch-locked stretch as a render cache — a low-priority thread runs
+  RubberBand offline over the source file; the playlist plays varispeed until the render
+  lands, then re-snapshots onto the stretched file (offsets scaled by the ratio).
 - **Recording**: one WAV per record pass; loop passes append to the same file with
   pass marks, sliced into **take lanes** on stop (newest take = lane 0 = audible; older
   overlapping clips pushed up). Start times are compensated by device+graph latency.
@@ -124,5 +127,5 @@ and the window-level `KeyListener` (transport keys). `UIState` carries cross-vie
 ## Where to extend
 
 Grep for `// EXTEND:` — every deliberate growth point is marked at the exact line:
-real time-stretch, crossfade comping, out-of-process scanning, Linux video decode,
+live RT time-stretch, crossfade comping, out-of-process scanning, Linux video decode,
 single-pass stems, MIDI FX slot, sample-accurate automation ramps, deeper IR abuse.

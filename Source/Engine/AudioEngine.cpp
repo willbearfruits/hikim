@@ -14,6 +14,7 @@ AudioEngine::AudioEngine (SessionModel& s, PluginHost& ph, juce::PropertiesFile*
     : session (s), pluginHost (ph), appProps (props)
 {
     formatManager.registerBasicFormats();
+    stretchCache = std::make_unique<StretchCache> (formatManager);
     diskThread.startThread (juce::Thread::Priority::normal);
     recordThread.startThread (juce::Thread::Priority::normal);
 
@@ -546,8 +547,34 @@ void AudioEngine::updateTrackPlaylists (const ValueTree& t)
         for (const auto& c : t.getChildWithName (id::CLIPS))
         {
             if ((int) c.getProperty (id::lane, 0) != 0) continue;   // lanes > 0 are muted takes
-            const File f ((c[id::file]).toString());
             const String cuid = c[id::uid];
+            const double fileSR = (double) c.getProperty (id::fileSR, currentSR);
+            const double stretchRate = juce::jlimit (0.1, 10.0, (double) c.getProperty (id::stretch, 1.0));
+
+            // pitch-locked stretch: swap to the RubberBand render when it's cached;
+            // play varispeed until then (the background render triggers a re-snapshot)
+            File f ((c[id::file]).toString());
+            double offset = (double) c[id::offset];
+            double playRatio = (fileSR / currentSR) / stretchRate;
+            if ((int) c.getProperty (id::stretchMode, 0) == 1
+                && std::abs (stretchRate - 1.0) > 1.0e-3 && stretchCache != nullptr)
+            {
+                const File stretched = stretchCache->get (f, stretchRate,
+                    [safe = juce::WeakReference<AudioEngine> (this), uid]
+                    {
+                        if (auto* e = safe.get())
+                        {
+                            e->playlistDirtyTracks.addIfNotAlreadyThere (uid);
+                            e->scheduleRebuild (rebuild::playlists);
+                        }
+                    });
+                if (stretched != File())
+                {
+                    f = stretched;
+                    offset *= stretchRate;          // positions scale into the stretched render
+                    playRatio = fileSR / currentSR; // duration already baked in
+                }
+            }
 
             std::shared_ptr<juce::AudioFormatReader> reader;
             auto cached = readerCache.find (cuid);
@@ -565,15 +592,11 @@ void AudioEngine::updateTrackPlaylists (const ValueTree& t)
             AudioClipRT rc;
             rc.start   = secToSamples ((double) c[id::start]);
             rc.length  = secToSamples ((double) c[id::length]);
-            rc.offset  = (double) c[id::offset];
+            rc.offset  = offset;
             rc.gain    = juce::Decibels::decibelsToGain ((float) (double) c.getProperty (id::clipGain, 0.0));
             rc.fadeIn  = secToSamples ((double) c.getProperty (id::fadeIn, 0.0));
             rc.fadeOut = secToSamples ((double) c.getProperty (id::fadeOut, 0.0));
-            const double fileSR = (double) c.getProperty (id::fileSR, currentSR);
-            const double stretchRate = juce::jlimit (0.1, 10.0, (double) c.getProperty (id::stretch, 1.0));
-            // EXTEND: real time-stretch (RubberBand/SoundTouch). This is plain
-            // varispeed: stretch changes both duration and pitch.
-            rc.ratio = (fileSR / currentSR) / stretchRate;
+            rc.ratio = playRatio;
             rc.reader = reader;
             rc.numFileChannels = (int) reader->numChannels;
             rc.fileLength = reader->lengthInSamples;

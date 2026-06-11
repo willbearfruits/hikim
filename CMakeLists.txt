@@ -47,6 +47,7 @@ target_sources(dawglitch PRIVATE
     Source/Engine/ClipPlayer.cpp
     Source/Engine/MidiSource.cpp
     Source/Engine/AudioEngine.cpp
+    Source/Engine/StretchCache.cpp
     Source/Engine/Renderer.cpp
     Source/Plugins/PluginHost.cpp
     Source/Rack/RackModules.cpp
@@ -74,6 +75,33 @@ target_compile_definitions(dawglitch PRIVATE
     # JUCE_ASIO=1                   # EXTEND: drop the ASIO SDK in and enable for low-latency Windows ASIO
     JUCE_MODAL_LOOPS_PERMITTED=1
     JUCE_DISPLAY_SPLASH_SCREEN=0)   # GPLv3 build
+
+# ---- RubberBand: pitch-locked time-stretch ----------------------------------
+# System lib if present, else vendored single-file build (GPL, like this app).
+find_package(PkgConfig QUIET)
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(RUBBERBAND IMPORTED_TARGET rubberband)
+endif()
+if(RUBBERBAND_FOUND)
+    target_link_libraries(dawglitch PRIVATE PkgConfig::RUBBERBAND)
+    target_compile_definitions(dawglitch PRIVATE DG_HAVE_RUBBERBAND=1)
+else()
+    include(FetchContent)
+    FetchContent_Declare(rubberband
+        GIT_REPOSITORY https://github.com/breakfastquay/rubberband.git
+        GIT_TAG v3.3.0
+        GIT_SHALLOW TRUE)
+    # no CMakeLists upstream (meson project) - this just populates the sources
+    FetchContent_MakeAvailable(rubberband)
+    if(EXISTS "${rubberband_SOURCE_DIR}/single/RubberBandSingle.cpp")
+        target_sources(dawglitch PRIVATE "${rubberband_SOURCE_DIR}/single/RubberBandSingle.cpp")
+        target_include_directories(dawglitch PRIVATE "${rubberband_SOURCE_DIR}")
+        target_compile_definitions(dawglitch PRIVATE DG_HAVE_RUBBERBAND=1)
+    else()
+        message(WARNING "RubberBand unavailable - pitch-locked stretch disabled (varispeed only)")
+        target_compile_definitions(dawglitch PRIVATE DG_HAVE_RUBBERBAND=0)
+    endif()
+endif()
 
 if(APPLE OR WIN32)
     target_compile_definitions(dawglitch PRIVATE DG_HAVE_VIDEO=1)

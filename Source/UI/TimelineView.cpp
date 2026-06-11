@@ -409,7 +409,9 @@ public:
         if (clip[id::type].toString() == "audio")
         {
             m.addItem (5, "Clip gain...");
-            m.addItem (6, "Stretch rate...");
+            m.addItem (6, "Stretch (duration x)...");
+            m.addItem (8, "Pitch-locked stretch (RubberBand)", StretchCache::available(),
+                       (int) clip.getProperty (id::stretchMode, 0) == 1);
         }
         if ((int) clip.getProperty (id::lane, 0) != 0)
             m.addItem (7, "Promote take to lane 0");
@@ -443,12 +445,16 @@ public:
             }
             else if (r == 6)
             {
-                auto* w = new juce::AlertWindow ("Stretch rate (varispeed; 2 = double speed)", {}, juce::MessageBoxIconType::NoIcon);
+                auto* w = new juce::AlertWindow ("Stretch (duration multiplier; 2 = twice as long)", {}, juce::MessageBoxIconType::NoIcon);
                 w->addTextEditor ("s", c.getProperty (id::stretch, 1.0).toString());
                 w->addButton ("OK", 1); w->addButton ("Cancel", 0);
                 w->enterModalState (true, juce::ModalCallbackFunction::create ([view, c, w] (int res) mutable
                 { if (res == 1) c.setProperty (id::stretch, juce::jlimit (0.1, 10.0, w->getTextEditorContents ("s").getDoubleValue()), &view->session.undo); }), true);
             }
+            else if (r == 8)
+                c.setProperty (id::stretchMode,
+                               (int) c.getProperty (id::stretchMode, 0) == 1 ? 0 : 1,
+                               &view->session.undo);
             else if (r == 7)
             {
                 const int myLane = c.getProperty (id::lane, 0);
