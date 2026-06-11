@@ -623,21 +623,7 @@ void AudioEngine::updateTrackPlaylists (const ValueTree& t)
             pl->clips.push_back (rc);
         }
 
-        // comp crossfades: any overlap between audible clips becomes an
-        // equal-power crossfade (split a take, promote the slice, nudge the
-        // edges to overlap - that's the comp)
-        std::sort (pl->clips.begin(), pl->clips.end(),
-                   [] (const AudioClipRT& a, const AudioClipRT& b) { return a.start < b.start; });
-        for (size_t i = 0; i < pl->clips.size(); ++i)
-            for (size_t j = i + 1; j < pl->clips.size(); ++j)
-            {
-                auto& a = pl->clips[i];
-                auto& b = pl->clips[j];
-                if (b.start >= a.start + a.length) break;
-                const juce::int64 overlap = juce::jmin (a.start + a.length - b.start, b.length, a.length);
-                a.xfadeOut = juce::jmax (a.xfadeOut, overlap);
-                b.xfadeIn  = juce::jmax (b.xfadeIn, overlap);
-            }
+        applyCompCrossfades (pl->clips);
         auto* src = static_cast<ClipPlayerProcessor*> (tn.source->getProcessor());
         // keep the old snapshot alive message-side so the audio thread never
         // holds the last reference (readers must not be destroyed on the audio thread)

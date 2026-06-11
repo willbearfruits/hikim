@@ -339,6 +339,12 @@ bool MainComponent::keyPressed (const juce::KeyPress& k, juce::Component* origin
         if (is ('A')) { timeline->selectAll(); return true; }
         return false;
     }
+    if (kc == '1' || kc == '2' || kc == '3')
+    {
+        ui.tool = kc == '1' ? Tool::select : kc == '2' ? Tool::razor : Tool::erase;
+        timeline->syncToolbar();
+        return true;
+    }
     if (is ('R')) { engine->toggleRecord(); return true; }
     if (is ('L'))
     {

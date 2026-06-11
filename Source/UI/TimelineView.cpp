@@ -271,6 +271,23 @@ public:
     void mouseDown (const juce::MouseEvent& e) override
     {
         const String uid = clip[id::uid];
+
+        // premiere-style tools
+        if (! e.mods.isPopupMenu() && tv.ui.tool == Tool::razor)
+        {
+            const double t = tv.snap (tv.xToTime (getX() + e.x));
+            clipops::splitAt (tv.session, *tv.engine.getTempoMap(), { uid }, t);
+            tv.rebuildPending = true;
+            return;
+        }
+        if (! e.mods.isPopupMenu() && tv.ui.tool == Tool::erase)
+        {
+            clipops::deleteClips (tv.session, { uid });
+            tv.ui.selectedClips.erase (uid);
+            tv.rebuildPending = true;
+            return;
+        }
+
         if (! e.mods.isShiftDown() && tv.ui.selectedClips.count (uid) == 0)
             tv.ui.selectedClips.clear();
         tv.ui.selectedClips.insert (uid);
@@ -307,7 +324,20 @@ public:
         }
 
         if (mode == Mode::move)
+        {
             clip.setProperty (id::start, juce::jmax (0.0, tv.snap (origStart + dx)), &undo);
+            // follow the cursor vertically so cross-track moves read clearly
+            const int canvasY = e.getEventRelativeTo (getParentComponent()).y;
+            const int rowIdx = tv.rowIndexAtY (canvasY);
+            visualRowY = -1;
+            if (rowIdx >= 0)
+            {
+                const auto& row = tv.rows[(size_t) rowIdx];
+                if (! row.lane.isValid() && row.track != track
+                    && row.track[id::type].toString() == track[id::type].toString())
+                    visualRowY = row.y + 1;
+            }
+        }
         else if (mode == Mode::trimL)
         {
             const double ns = juce::jlimit (0.0, origStart + origLen - 0.05, tv.snap (origStart + dx));
@@ -349,6 +379,7 @@ public:
             }
         }
         mode = Mode::none;
+        visualRowY = -1;
         tv.rebuildPending = true;       // deferred: rebuild() would delete us mid-event
     }
 
@@ -436,6 +467,8 @@ public:
 
     void mouseMove (const juce::MouseEvent& e) override
     {
+        if (tv.ui.tool == Tool::razor)  { setMouseCursor (juce::MouseCursor::IBeamCursor); return; }
+        if (tv.ui.tool == Tool::erase)  { setMouseCursor (juce::MouseCursor::CrosshairCursor); return; }
         const int w = getWidth();
         if (e.x < 7 || e.x > w - 7)
             setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
@@ -444,6 +477,8 @@ public:
         else
             setMouseCursor (juce::MouseCursor::NormalCursor);
     }
+
+    int visualRowY = -1;          // live cross-track drag feedback
 
 private:
     TimelineView& tv;
@@ -997,17 +1032,100 @@ private:
     TimelineView& tv;
 };
 
-// =========================================================================== TimelineView
+// =========================================================================== ToolBar
 
 namespace
 {
-    class SyncedViewport : public juce::Viewport
+    class ToolButton : public juce::Button
     {
     public:
-        std::function<void()> onScroll;
-        void visibleAreaChanged (const juce::Rectangle<int>&) override { if (onScroll) onScroll(); }
+        ToolButton (const juce::Path& p, const String& name) : juce::Button (name), icon (p)
+        {
+            setClickingTogglesState (false);
+        }
+        void paintButton (juce::Graphics& g, bool over, bool down) override
+        {
+            auto r = getLocalBounds().toFloat().reduced (1.0f);
+            if (getToggleState()) { g.setColour (col::accent.withAlpha (0.3f)); g.fillRoundedRectangle (r, 2.0f); }
+            else if (over || down) { g.setColour (col::panelHi); g.fillRoundedRectangle (r, 2.0f); }
+            g.setColour (getToggleState() ? col::accent : col::text);
+            g.fillPath (icon, icon.getTransformToScaleToFit (r.reduced (4.0f), true));
+        }
+    private:
+        juce::Path icon;
     };
+
+    juce::Path makeArrowIcon()
+    {
+        juce::Path p;
+        p.startNewSubPath (0, 0); p.lineTo (0, 14); p.lineTo (4, 10);
+        p.lineTo (7, 16); p.lineTo (9.5f, 14.5f); p.lineTo (6.5f, 9);
+        p.lineTo (11, 8.5f); p.closeSubPath();
+        return p;
+    }
+    juce::Path makeRazorIcon()
+    {
+        juce::Path p;                                   // blade + spine
+        p.startNewSubPath (1, 11); p.lineTo (13, 11); p.lineTo (13, 8);
+        p.lineTo (1, 4); p.closeSubPath();
+        p.addRectangle (5.5f, 0.0f, 1.6f, 4.0f);        // handle stub
+        return p;
+    }
+    juce::Path makeEraseIcon()
+    {
+        juce::Path p;
+        p.addLineSegment ({ 1, 1, 11, 11 }, 2.4f);
+        p.addLineSegment ({ 11, 1, 1, 11 }, 2.4f);
+        return p;
+    }
 }
+
+class TimelineToolBar : public juce::Component
+{
+public:
+    TimelineToolBar (UIState& u, std::function<void()> onChangeFn)
+        : ui (u), onChange (std::move (onChangeFn))
+    {
+        addBtn (makeArrowIcon(), "select (1)", Tool::select);
+        addBtn (makeRazorIcon(), "razor (2)", Tool::razor);
+        addBtn (makeEraseIcon(), "erase (3)", Tool::erase);
+        sync();
+    }
+
+    void sync()
+    {
+        for (int i = 0; i < buttons.size(); ++i)
+            buttons[i]->setToggleState (ui.tool == tools[(size_t) i], juce::dontSendNotification);
+        repaint();
+    }
+
+    void resized() override
+    {
+        auto b = getLocalBounds().reduced (3, 4);
+        for (auto* btn : buttons)
+        {
+            btn->setBounds (b.removeFromLeft (24));
+            b.removeFromLeft (2);
+        }
+    }
+
+private:
+    void addBtn (const juce::Path& icon, const String& name, Tool t)
+    {
+        auto* b = buttons.add (new ToolButton (icon, name));
+        b->setTooltip (name);
+        b->onClick = [this, t] { ui.tool = t; sync(); if (onChange) onChange(); };
+        addAndMakeVisible (b);
+        tools.push_back (t);
+    }
+
+    UIState& ui;
+    std::function<void()> onChange;
+    juce::OwnedArray<ToolButton> buttons;
+    std::vector<Tool> tools;
+};
+
+// =========================================================================== TimelineView
 
 TimelineView::TimelineView (AudioEngine& e, SessionModel& s, PluginHost& p, UIState& u)
     : engine (e), session (s), plugins (p), ui (u)
@@ -1024,6 +1142,12 @@ TimelineView::TimelineView (AudioEngine& e, SessionModel& s, PluginHost& p, UISt
     headerHolder.addAndMakeVisible (headerStrip);
     addAndMakeVisible (headerHolder);
 
+    toolbar = std::make_unique<TimelineToolBar> (ui, [this]
+    {
+        for (auto* cc : clipComps) cc->repaint();
+    });
+    addAndMakeVisible (*toolbar);
+
     session.root.addListener (this);
     startTimerHz (30);
     rebuild();
@@ -1032,6 +1156,13 @@ TimelineView::TimelineView (AudioEngine& e, SessionModel& s, PluginHost& p, UISt
 TimelineView::~TimelineView()
 {
     session.root.removeListener (this);
+}
+
+void TimelineView::syncToolbar()
+{
+    if (auto* tb = dynamic_cast<TimelineToolBar*> (toolbar.get()))
+        tb->sync();
+    for (auto* cc : clipComps) cc->repaint();
 }
 
 double TimelineView::snap (double sec) const
@@ -1138,8 +1269,9 @@ void TimelineView::layoutCanvasChildren()
         const int laneH = juce::jmax (12, (row->h - 2) / laneCount);
         const int lane = cc->clip.getProperty (id::lane, 0);
 
+        const int baseY = cc->visualRowY >= 0 ? cc->visualRowY : row->y + 1;
         cc->setBounds ((int) timeToX ((double) cc->clip[id::start]),
-                       row->y + 1 + lane * laneH,
+                       baseY + lane * laneH,
                        juce::jmax (8, (int) ((double) cc->clip[id::length] * pps)),
                        laneH);
     }
@@ -1174,125 +1306,41 @@ void TimelineView::zoomAround (double factor, int pivotX)
 
 void TimelineView::splitSelectedAtPlayhead()
 {
-    const double ph = engine.getPositionSeconds();
-    session.undo.beginNewTransaction ("split");
-    for (auto track : session.tracks())
-    {
-        for (auto clip : SessionModel::clipsOf (track))
-        {
-            if (ui.selectedClips.count (clip[id::uid].toString()) == 0) continue;
-            const double s = clip[id::start], len = clip[id::length];
-            if (ph <= s + 0.01 || ph >= s + len - 0.01) continue;
-
-            auto right = clip.createCopy();
-            right.setProperty (id::uid, SessionModel::newUID(), nullptr);
-            right.setProperty (id::start, ph, nullptr);
-            right.setProperty (id::length, s + len - ph, nullptr);
-            right.setProperty (id::fadeIn, 0.0, nullptr);
-            if (clip[id::type].toString() == "audio")
-            {
-                const double fileSR = clip.getProperty (id::fileSR, 48000.0);
-                const double stretch = clip.getProperty (id::stretch, 1.0);
-                right.setProperty (id::offset, (double) clip[id::offset] + (ph - s) * fileSR / stretch, nullptr);
-            }
-            else
-            {
-                // shift midi notes into the right half
-                auto map = engine.getTempoMap();
-                const double splitBeat = map->secondsToBeats (ph) - map->secondsToBeats (s);
-                auto rnotes = right.getChildWithName (id::NOTES);
-                for (int i = rnotes.getNumChildren(); --i >= 0;)
-                {
-                    auto n = rnotes.getChild (i);
-                    const double nb = (double) n[id::beat] - splitBeat;
-                    if (nb < 0) rnotes.removeChild (i, nullptr);
-                    else n.setProperty (id::beat, nb, nullptr);
-                }
-                auto lnotes = clip.getChildWithName (id::NOTES);
-                for (int i = lnotes.getNumChildren(); --i >= 0;)
-                    if ((double) lnotes.getChild (i)[id::beat] >= splitBeat)
-                        lnotes.removeChild (i, nullptr);
-            }
-            clip.setProperty (id::length, ph - s, &session.undo);
-            clip.setProperty (id::fadeOut, 0.0, &session.undo);
-            clip.getParent().appendChild (right, &session.undo);
-        }
-    }
+    clipops::splitAt (session, *engine.getTempoMap(), ui.selectedClips, engine.getPositionSeconds());
     rebuild();
 }
 
 void TimelineView::deleteSelected()
 {
-    session.undo.beginNewTransaction ("delete clips");
-    for (auto track : session.tracks())
-    {
-        auto clips = SessionModel::clipsOf (track);
-        for (int i = clips.getNumChildren(); --i >= 0;)
-            if (ui.selectedClips.count (clips.getChild (i)[id::uid].toString()) > 0)
-                clips.removeChild (i, &session.undo);
-    }
+    clipops::deleteClips (session, ui.selectedClips);
     ui.selectedClips.clear();
     rebuild();
 }
 
 void TimelineView::copySelected (bool cut)
 {
-    clipboard.clear();
-    for (auto track : session.tracks())
-        for (auto clip : SessionModel::clipsOf (track))
-            if (ui.selectedClips.count (clip[id::uid].toString()) > 0)
-                clipboard.emplace_back (track[id::uid].toString(), clip.createCopy());
-    if (cut && ! clipboard.empty())
-        deleteSelected();
+    auto items = clipops::copyClips (session, ui.selectedClips);
+    if (! items.empty())
+    {
+        clipboard = std::move (items);
+        if (cut) deleteSelected();
+    }
 }
 
 void TimelineView::pasteAtPlayhead()
 {
-    if (clipboard.empty()) return;
-    double earliest = std::numeric_limits<double>::max();
-    for (const auto& [tuid, c] : clipboard)
-        earliest = juce::jmin (earliest, (double) c[id::start]);
-
-    const double ph = snap (engine.getPositionSeconds());
-    session.undo.beginNewTransaction ("paste");
-    ui.selectedClips.clear();
-    for (const auto& [tuid, c] : clipboard)
+    auto pasted = clipops::paste (session, clipboard, snap (engine.getPositionSeconds()));
+    if (! pasted.isEmpty())
     {
-        auto track = session.findTrack (tuid);
-        if (! track.isValid()) continue;
-        auto copy = c.createCopy();
-        copy.setProperty (id::uid, SessionModel::newUID(), nullptr);
-        copy.setProperty (id::start, ph + ((double) c[id::start] - earliest), nullptr);
-        SessionModel::clipsOf (track).appendChild (copy, &session.undo);
-        ui.selectedClips.insert (copy[id::uid].toString());
+        ui.selectedClips.clear();
+        for (const auto& u : pasted) ui.selectedClips.insert (u);
+        rebuild();
     }
-    rebuild();
 }
 
 void TimelineView::rippleDeleteSelected()
 {
-    session.undo.beginNewTransaction ("ripple delete");
-    for (auto track : session.tracks())
-    {
-        std::vector<ValueTree> sel;
-        for (auto clip : SessionModel::clipsOf (track))
-            if (ui.selectedClips.count (clip[id::uid].toString()) > 0)
-                sel.push_back (clip);
-        std::sort (sel.begin(), sel.end(),
-                   [] (const ValueTree& a, const ValueTree& b)
-                   { return (double) a[id::start] > (double) b[id::start]; });   // rightmost first
-
-        for (auto& clip : sel)
-        {
-            const double s = clip[id::start], len = clip[id::length];
-            auto clips = SessionModel::clipsOf (track);
-            clips.removeChild (clip, &session.undo);
-            for (auto other : clips)
-                if ((double) other[id::start] >= s)
-                    other.setProperty (id::start,
-                                       juce::jmax (0.0, (double) other[id::start] - len), &session.undo);
-        }
-    }
+    clipops::rippleDelete (session, ui.selectedClips);
     ui.selectedClips.clear();
     rebuild();
 }
@@ -1309,16 +1357,7 @@ void TimelineView::selectAll()
 
 void TimelineView::duplicateSelected()
 {
-    session.undo.beginNewTransaction ("duplicate");
-    for (auto track : session.tracks())
-        for (auto clip : SessionModel::clipsOf (track))
-            if (ui.selectedClips.count (clip[id::uid].toString()) > 0)
-            {
-                auto copy = clip.createCopy();
-                copy.setProperty (id::uid, SessionModel::newUID(), nullptr);
-                copy.setProperty (id::start, (double) clip[id::start] + (double) clip[id::length], nullptr);
-                clip.getParent().appendChild (copy, &session.undo);
-            }
+    clipops::duplicate (session, ui.selectedClips);
     rebuild();
 }
 
@@ -1610,7 +1649,7 @@ void TimelineView::resized()
 {
     auto b = getLocalBounds();
     auto top = b.removeFromTop (kRulerH);
-    top.removeFromLeft (kHeaderW);
+    toolbar->setBounds (top.removeFromLeft (kHeaderW));
     ruler->setBounds (top);
 
     auto left = b.removeFromLeft (kHeaderW);
@@ -1624,9 +1663,6 @@ void TimelineView::paint (juce::Graphics& g)
     g.fillAll (col::bg);
     g.setColour (col::panel);
     g.fillRect (0, 0, kHeaderW, kRulerH);
-    g.setColour (col::text);
-    g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
-    g.drawText ("TRACKS", 8, 0, kHeaderW - 8, kRulerH, juce::Justification::centredLeft);
 }
 
 void TimelineView::timerCallback()

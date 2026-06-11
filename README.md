@@ -50,8 +50,11 @@ ASIO: drop the Steinberg ASIO SDK in and enable `JUCE_ASIO=1` in `CMakeLists.txt
 ## Quick orientation
 
 - **Space** play/stop - **R** record - **L** loop - **S** split selected clip at playhead -
-  **Del** delete clips - **Ctrl+D** duplicate - **Ctrl+Z / Ctrl+Shift+Z** undo/redo -
+  **Del** delete - **Shift+Del** ripple delete - **Ctrl+X/C/V** cut/copy/paste at playhead -
+  **Ctrl+D** duplicate - **Ctrl+A** select all - **Ctrl+Z / Ctrl+Shift+Z** undo/redo -
   **Ctrl+S** save - **Ctrl+E** export - **Ctrl+wheel** zoom.
+- Timeline tools (toolbar top-left, or keys **1/2/3**): **select** (arrow),
+  **razor** (click a clip to split there), **erase** (click a clip to delete it).
 - Drag audio files anywhere in the window to import (`.dgproj` opens, video files load
   the video track). Formats: WAV/AIFF/FLAC/OGG/MP3 natively; with **ffmpeg** installed,
   anything it can decode (opus, m4a, wma, exotic wavs, ...) bridges in via a one-time
@@ -83,5 +86,19 @@ ever want different names: `Source/Common.h` → `dg::names::appName` / `rackNam
 - Video decoding on Linux (sync logic + frame counter run everywhere; mac/win play video).
 - Stems render one pass per track; single-pass multi-writer marked.
 - MIDI FX / arpeggiator slot on instrument tracks.
+
+## Testing
+
+A headless suite covers the model, clip operations, comp crossfades, the TEETH
+modules (including the bit-transparency law and feedback clamping), the built-in
+instruments, and the stretch cache:
+
+```sh
+cmake --build build --target ruin_tests -j$(nproc)
+./build/ruin_tests_artefacts/Release/ruin_tests
+```
+
+Clip editing lives in `Source/Model/ClipOps.*` (UI-free) precisely so the suite
+drives the same code the timeline does.
 
 See `ARCHITECTURE.md` for how the graph, session model and subsystems fit together.

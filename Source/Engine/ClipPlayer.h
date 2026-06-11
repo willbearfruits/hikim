@@ -22,6 +22,29 @@ struct AudioClipRT
 
 struct AudioPlaylist { std::vector<AudioClipRT> clips; };
 
+// Comp crossfades: only a PARTIAL head/tail overlap becomes an equal-power
+// crossfade (a's tail against b's head). Containment or same-start overlaps
+// simply sum - layering clips must never silence one of them.
+inline void applyCompCrossfades (std::vector<AudioClipRT>& clips)
+{
+    std::sort (clips.begin(), clips.end(),
+               [] (const AudioClipRT& a, const AudioClipRT& b) { return a.start < b.start; });
+    for (size_t i = 0; i < clips.size(); ++i)
+        for (size_t j = i + 1; j < clips.size(); ++j)
+        {
+            auto& a = clips[i];
+            auto& b = clips[j];
+            const juce::int64 aEnd = a.start + a.length;
+            if (b.start >= aEnd) break;
+            if (b.start > a.start && b.start + b.length > aEnd)     // partial tail/head only
+            {
+                const juce::int64 overlap = aEnd - b.start;
+                a.xfadeOut = juce::jmax (a.xfadeOut, overlap);
+                b.xfadeIn  = juce::jmax (b.xfadeIn, overlap);
+            }
+        }
+}
+
 // One live recording pass (file shared across loop passes; takes sliced on stop).
 struct RecordSession
 {

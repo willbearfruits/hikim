@@ -1,6 +1,7 @@
 #pragma once
 #include "../Engine/AudioEngine.h"
 #include "../Plugins/PluginHost.h"
+#include "../Model/ClipOps.h"
 #include "UIState.h"
 #include "Look.h"
 
@@ -38,6 +39,8 @@ public:
 
     // "fx:rack" | "fx:builtin:<name>" | "fx:plug:<identifier>" -> insert/instrument
     void applyFxToTrack (ValueTree track, const String& fxId);
+
+    void syncToolbar();                      // reflect ui.tool after keyboard switch
 
     double timeToX (double sec) const  { return sec * pps; }
     double xToTime (double x) const    { return x / pps; }
@@ -90,7 +93,8 @@ private:
 
     bool rebuildPending = false, layoutPending = false;
     int lastViewY = -1, lastViewX = -1;
-    std::vector<std::pair<String, ValueTree>> clipboard;   // (track uid, clip copy)
+    std::vector<clipops::ClipboardItem> clipboard;
+    std::unique_ptr<juce::Component> toolbar;
 
     static constexpr int kHeaderW = 220;
     static constexpr int kRulerH = 30;

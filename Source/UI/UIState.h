@@ -6,9 +6,12 @@ namespace dg
 {
 
 // Cross-view UI state owned by MainComponent.
+enum class Tool { select, razor, erase };
+
 struct UIState
 {
     int snapMode = 5;                       // index into kSnapNames
+    Tool tool = Tool::select;               // timeline tool (keys 1/2/3)
     std::set<String> selectedClips;         // clip uids
     String selectedTrack;                   // uid; FX explorer double-click target
     std::function<void (ValueTree clip)> openPianoRoll;

@@ -42,6 +42,7 @@ target_sources(dawglitch PRIVATE
     Source/Main.cpp
     Source/MainComponent.cpp
     Source/Model/Session.cpp
+    Source/Model/ClipOps.cpp
     Source/Engine/TempoMap.cpp
     Source/Engine/Processors.cpp
     Source/Engine/ClipPlayer.cpp
@@ -122,3 +123,41 @@ target_link_libraries(dawglitch PRIVATE
     PUBLIC
     juce::juce_recommended_config_flags
     juce::juce_recommended_lto_flags)
+
+# ---- headless test suite -----------------------------------------------------
+# cmake --build build --target ruin_tests && ./build/ruin_tests_artefacts/ruin-tests
+juce_add_console_app(ruin_tests PRODUCT_NAME "ruin-tests")
+juce_generate_juce_header(ruin_tests)
+target_sources(ruin_tests PRIVATE
+    Tests/Tests.cpp
+    Source/Model/Session.cpp
+    Source/Model/ClipOps.cpp
+    Source/Engine/TempoMap.cpp
+    Source/Engine/Processors.cpp
+    Source/Engine/StretchCache.cpp
+    Source/Rack/RackModules.cpp
+    Source/Rack/RackProcessor.cpp
+    Source/Rack/RackEditor.cpp)
+target_include_directories(ruin_tests PRIVATE Source)
+target_compile_definitions(ruin_tests PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_USE_MP3AUDIOFORMAT=1
+    JUCE_MODAL_LOOPS_PERMITTED=1
+    JUCE_DISPLAY_SPLASH_SCREEN=0)
+if(RUBBERBAND_FOUND)
+    target_link_libraries(ruin_tests PRIVATE PkgConfig::RUBBERBAND)
+    target_compile_definitions(ruin_tests PRIVATE DG_HAVE_RUBBERBAND=1)
+elseif(EXISTS "${rubberband_SOURCE_DIR}/single/RubberBandSingle.cpp")
+    target_sources(ruin_tests PRIVATE "${rubberband_SOURCE_DIR}/single/RubberBandSingle.cpp")
+    target_include_directories(ruin_tests PRIVATE "${rubberband_SOURCE_DIR}")
+    target_compile_definitions(ruin_tests PRIVATE DG_HAVE_RUBBERBAND=1)
+else()
+    target_compile_definitions(ruin_tests PRIVATE DG_HAVE_RUBBERBAND=0)
+endif()
+target_link_libraries(ruin_tests PRIVATE
+    juce::juce_audio_utils
+    juce::juce_audio_processors
+    juce::juce_dsp
+    juce::juce_gui_extra
+    juce::juce_recommended_config_flags)
