@@ -52,14 +52,26 @@ private:
     ValueTree createMidiSlotClip (ValueTree track, const String& sceneUid);
     void launchScene (int row);
     void showCellMenu (int col, int row);
-    void timerCallback() override { repaint(); }
+    void timerCallback() override { advanceFollowIfDue(); repaint(); }
 
     AudioEngine& engine;
     SessionModel& session;
     UIState& ui;
 
+    juce::AudioThumbnail* thumbFor (const ValueTree& clip);
+    void showSceneMenu (int row);
+    void advanceFollowIfDue();
+
     juce::ComboBox quantBox;
-    juce::TextButton stopAllBtn { "STOP ALL" }, addSceneBtn { "+ SCENE" };
+    juce::TextButton stopAllBtn { "STOP ALL" }, addSceneBtn { "+ SCENE" }, followBtn { "FOLLOW" };
+    std::map<String, std::unique_ptr<juce::AudioThumbnail>> thumbs;
+
+    // tracker-style scene chaining
+    bool followOn = false;
+    int followRow = -1;
+    juce::int64 followRowStart = 0, followRowLen = 0;
+    bool followFired = false;
+
     int scrollX = 0, scrollY = 0;
     juce::Point<int> hover { -1, -1 };
     juce::Point<int> dragHover { -1, -1 };

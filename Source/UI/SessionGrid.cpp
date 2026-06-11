@@ -26,10 +26,50 @@ SessionGrid::SessionGrid (AudioEngine& e, SessionModel& s, UIState& u)
     };
     addAndMakeVisible (addSceneBtn);
 
+    followBtn.setClickingTogglesState (true);
+    followBtn.setColour (juce::TextButton::buttonOnColourId, col::accent2.darker (0.2f));
+    followBtn.setTooltip ("tracker mode: scenes chain automatically every N bars (right-click a scene to set its bars)");
+    followBtn.onClick = [this] { followOn = followBtn.getToggleState(); followFired = false; };
+    addAndMakeVisible (followBtn);
+
     startTimerHz (15);
 }
 
 SessionGrid::~SessionGrid() = default;
+
+juce::AudioThumbnail* SessionGrid::thumbFor (const ValueTree& clip)
+{
+    const String uid = clip[id::uid].toString();
+    auto it = thumbs.find (uid);
+    if (it != thumbs.end()) return it->second.get();
+
+    auto t = std::make_unique<juce::AudioThumbnail> (256, engine.formatManager, engine.thumbCache);
+    t->setSource (new juce::FileInputSource (engine.mediaFileFor (File (clip[id::file].toString()))));
+    auto* raw = t.get();
+    thumbs[uid] = std::move (t);
+    return raw;
+}
+
+void SessionGrid::advanceFollowIfDue()
+{
+    if (! followOn || followRow < 0 || ! engine.isPlaying() || followRowLen <= 0)
+        return;
+
+    // fire inside the final launch-quantize window so the next scene lands
+    // exactly on the row boundary
+    const double q = juce::jmax (0.25, engine.launchQuantizeBeats.load());
+    auto map = engine.getTempoMap();
+    const juce::int64 lead = map->beatsToSamples (q) - map->beatsToSamples (0.0);
+    const juce::int64 pos = engine.getPositionSamples();
+
+    if (! followFired && pos >= followRowStart + followRowLen - lead)
+    {
+        followFired = true;
+        const int numScenes = session.scenes().getNumChildren();
+        if (numScenes > 0)
+            launchScene ((followRow + 1) % numScenes);
+    }
+}
 
 std::vector<ValueTree> SessionGrid::gridTracks() const
 {
@@ -142,7 +182,8 @@ void SessionGrid::paint (juce::Graphics& g)
         juce::Rectangle<int> sr (4, kBarH + kHeadH + row * kRowH - scrollY, kSceneW - 10, kRowH - 4);
         if (sr.getBottom() < kBarH + kHeadH) continue;
 
-        g.setColour (col::panel);
+        const bool isFollowRow = followOn && row == followRow;
+        g.setColour (isFollowRow ? col::accent2.withAlpha (0.25f) : col::panel);
         g.fillRoundedRectangle (sr.toFloat(), 3.0f);
         g.setColour (col::play.withAlpha (0.8f));
         juce::Path tri;
@@ -153,6 +194,9 @@ void SessionGrid::paint (juce::Graphics& g)
         g.setColour (col::dim);
         g.setFont (juce::Font (juce::FontOptions (10.0f)));
         g.drawText (scene[id::name].toString(), sr.reduced (20, 0), juce::Justification::centredLeft);
+        if (followOn)
+            g.drawText (String ((int) (double) scene.getProperty ("bars", 4.0)) + "b",
+                        sr.reduced (4, 0), juce::Justification::centredRight);
 
         for (int colIdx = 0; colIdx < (int) tracks.size(); ++colIdx)
         {
@@ -182,35 +226,73 @@ void SessionGrid::paint (juce::Graphics& g)
             const bool pending = st.pending == cuid;
             auto base = juce::Colour::fromString (t.getProperty (id::colour, "ff808080").toString());
 
-            g.setColour (playing ? base.withAlpha (0.55f)
-                         : pending && blink ? base.withAlpha (0.45f)
+            g.setColour (playing ? base.withAlpha (0.35f)
+                         : pending && blink ? base.withAlpha (0.3f)
                          : col::panelHi);
             g.fillRoundedRectangle (r.toFloat(), 3.0f);
-            g.setColour (playing ? col::play : pending ? col::accent2 : base);
-            g.drawRoundedRectangle (r.toFloat().reduced (0.5f), 3.0f, playing ? 1.8f : 1.0f);
 
-            // play triangle / playing bars
-            g.setColour (playing ? col::play : col::text.withAlpha (0.8f));
-            if (playing)
+            // the wave (or the notes) lives inside the box
+            auto content = r.reduced (18, 2).withTrimmedLeft (2);
+            if (clip[id::type].toString() == "audio")
             {
-                for (int b = 0; b < 3; ++b)
-                    g.fillRect (r.getX() + 6 + b * 4,
-                                r.getCentreY() - 5 + (int) (4.0 * std::abs (std::sin (
-                                    juce::Time::getMillisecondCounterHiRes() * 0.006 + b))),
-                                2, 9);
+                if (auto* th = thumbFor (clip); th != nullptr && th->getTotalLength() > 0)
+                {
+                    g.setColour (base.brighter (playing ? 0.8f : 0.45f));
+                    const double fileSR = clip.getProperty (id::fileSR, 48000.0);
+                    const double srcStart = (double) clip[id::offset] / fileSR;
+                    th->drawChannels (g, content, srcStart, srcStart + (double) clip[id::length], 0.95f);
+                }
             }
             else
             {
-                juce::Path p2;
-                p2.addTriangle ((float) r.getX() + 6, (float) r.getY() + 8,
-                                (float) r.getX() + 6, (float) r.getBottom() - 8,
-                                (float) r.getX() + 15, (float) r.getCentreY());
-                g.fillPath (p2);
+                auto notes = clip.getChildWithName (id::NOTES);
+                const double loopBeats = juce::jmax (1.0, (double) clip.getProperty (id::loopBeats, 4.0));
+                g.setColour (base.brighter (playing ? 0.8f : 0.45f));
+                for (const auto& nt : notes)
+                {
+                    const float nx = (float) content.getX()
+                                     + (float) ((double) nt[id::beat] / loopBeats) * (float) content.getWidth();
+                    const float nw = juce::jmax (2.0f, (float) ((double) nt[id::len] / loopBeats) * (float) content.getWidth());
+                    const float ny = (float) content.getBottom()
+                                     - (float) (((int) nt[id::pitch] % 36) / 36.0f) * (float) content.getHeight();
+                    g.fillRect (nx, juce::jlimit ((float) content.getY(), (float) content.getBottom() - 2.0f, ny), nw, 2.0f);
+                }
             }
 
-            g.setColour (col::text);
-            g.setFont (juce::Font (juce::FontOptions (11.0f)));
-            g.drawText (clip[id::name].toString(), r.reduced (20, 2), juce::Justification::centredLeft);
+            // loop progress sweep while playing
+            if (playing)
+            {
+                const double phase = engine.getSessionLoopPhase (t[id::uid].toString());
+                if (phase >= 0)
+                {
+                    const int px = content.getX() + (int) (phase * content.getWidth());
+                    g.setColour (col::text.withAlpha (0.85f));
+                    g.drawVerticalLine (px, (float) r.getY() + 2.0f, (float) r.getBottom() - 2.0f);
+                }
+            }
+
+            g.setColour (playing ? col::play : pending ? col::accent2 : base);
+            g.drawRoundedRectangle (r.toFloat().reduced (0.5f), 3.0f, playing ? 1.8f : 1.0f);
+
+            g.setColour (playing ? col::play : col::text.withAlpha (0.8f));
+            juce::Path p2;
+            p2.addTriangle ((float) r.getX() + 5, (float) r.getY() + 9,
+                            (float) r.getX() + 5, (float) r.getBottom() - 9,
+                            (float) r.getX() + 13, (float) r.getCentreY());
+            g.fillPath (p2);
+
+            g.setColour (col::text.withAlpha (0.9f));
+            g.setFont (juce::Font (juce::FontOptions (10.0f)));
+            g.drawText (clip[id::name].toString(), r.reduced (18, 1).removeFromTop (12),
+                        juce::Justification::topLeft);
+
+            if (clip.hasProperty (id::bpm))
+            {
+                g.setColour (col::accent2.withAlpha (0.9f));
+                g.setFont (juce::Font (juce::FontOptions (9.0f, juce::Font::bold)));
+                g.drawText (String ((double) clip[id::bpm], 0), r.reduced (4, 1),
+                            juce::Justification::bottomRight);
+            }
         }
     }
 }
@@ -229,7 +311,12 @@ void SessionGrid::mouseDown (const juce::MouseEvent& e)
         repaint();
         return;
     }
-    if (c.sceneBtn) { launchScene (c.row); return; }
+    if (c.sceneBtn)
+    {
+        if (e.mods.isPopupMenu()) showSceneMenu (c.row);
+        else launchScene (c.row);
+        return;
+    }
     if (c.col < 0 || c.row < 0) return;
 
     if (e.mods.isPopupMenu()) { showCellMenu (c.col, c.row); return; }
@@ -286,6 +373,54 @@ void SessionGrid::launchScene (int row)
         if (clip.isValid())
             engine.launchSlot (t, clip);
     }
+
+    // tracker follow bookkeeping: this row owns the transport until its bars run out
+    auto map = engine.getTempoMap();
+    followRow = row;
+    followRowStart = engine.getNextLaunchBoundary();
+    const double bars = juce::jmax (1.0, (double) scene.getProperty ("bars", 4.0));
+    const double startBeat = map->samplesToBeats (followRowStart);
+    const double bpb = map->beatsPerBarAt (startBeat);
+    followRowLen = map->beatsToSamples (startBeat + bars * bpb) - followRowStart;
+    followFired = false;
+}
+
+void SessionGrid::showSceneMenu (int row)
+{
+    auto scene = session.scenes().getChild (row);
+    if (! scene.isValid()) return;
+    juce::PopupMenu m;
+    m.addItem (1, "Rename scene...");
+    juce::PopupMenu bars;
+    for (int b : { 1, 2, 4, 8, 16 })
+        bars.addItem (10 + b, String (b) + (b == 1 ? " bar" : " bars"), true,
+                      (int) scene.getProperty ("bars", 4.0) == b);
+    m.addSubMenu ("Follow length", bars);
+    m.addItem (2, "Delete scene");
+
+    auto* view = this;
+    ValueTree sceneC = scene;
+    m.showMenuAsync ({}, [view, sceneC, row] (int r) mutable
+    {
+        if (r == 1)
+        {
+            auto* w = new juce::AlertWindow ("Rename scene", {}, juce::MessageBoxIconType::NoIcon);
+            w->addTextEditor ("n", sceneC[id::name].toString());
+            w->addButton ("OK", 1); w->addButton ("Cancel", 0);
+            w->enterModalState (true, juce::ModalCallbackFunction::create (
+                [sceneC, w, view] (int res) mutable
+                { if (res == 1) sceneC.setProperty (id::name, w->getTextEditorContents ("n"), &view->session.undo); }), true);
+        }
+        else if (r == 2)
+        {
+            view->session.undo.beginNewTransaction ("delete scene");
+            view->session.scenes().removeChild (sceneC, &view->session.undo);
+            if (view->followRow == row) view->followRow = -1;
+        }
+        else if (r >= 11)
+            sceneC.setProperty ("bars", (double) (r - 10), &view->session.undo);
+        view->repaint();
+    });
 }
 
 void SessionGrid::showCellMenu (int colIdx, int row)
@@ -306,6 +441,13 @@ void SessionGrid::showCellMenu (int colIdx, int row)
             for (int bars : { 1, 2, 4, 8 })
                 loopMenu.addItem (10 + bars, String (bars) + (bars == 1 ? " bar" : " bars"));
             m.addSubMenu ("Loop length", loopMenu);
+        }
+        else
+        {
+            m.addItem (5, "Detect BPM");
+            m.addItem (6, "Conform to project tempo"
+                          + (clip.hasProperty (id::bpm)
+                                 ? " (" + String ((double) clip[id::bpm], 0) + " bpm)" : String()));
         }
         m.addItem (3, "Rename...");
     }
@@ -332,6 +474,31 @@ void SessionGrid::showCellMenu (int colIdx, int row)
             w->enterModalState (true, juce::ModalCallbackFunction::create (
                 [clipC, w, view] (int res) mutable
                 { if (res == 1) clipC.setProperty (id::name, w->getTextEditorContents ("n"), &view->session.undo); }), true);
+        }
+        else if (r == 5)
+        {
+            const double bpm = view->engine.estimateFileBpm (File (clipC[id::file].toString()));
+            if (bpm > 0) clipC.setProperty (id::bpm, bpm, &view->session.undo);
+        }
+        else if (r == 6)
+        {
+            double fileBpm = clipC.hasProperty (id::bpm) ? (double) clipC[id::bpm]
+                            : view->engine.estimateFileBpm (File (clipC[id::file].toString()));
+            if (fileBpm > 0)
+            {
+                clipC.setProperty (id::bpm, fileBpm, &view->session.undo);
+                auto map = view->engine.getTempoMap();
+                const double proj = map->bpmAtBeat (map->samplesToBeats (view->engine.getPositionSamples()));
+                const double oldStretch = clipC.getProperty (id::stretch, 1.0);
+                const double stretchF = fileBpm / proj;          // duration multiplier
+                const double rawDur = (double) clipC[id::length] / oldStretch;
+                double newDur = rawDur * stretchF;
+                const double spbSec = 60.0 / proj;
+                const double beats = juce::jmax (1.0, std::round (newDur / spbSec));
+                clipC.setProperty (id::stretch, stretchF, &view->session.undo);
+                clipC.setProperty (id::length, beats * spbSec, &view->session.undo);
+                // relaunch the slot to pick the new loop length up
+            }
         }
         else if (r >= 11 && r <= 18)
         {
@@ -468,6 +635,8 @@ void SessionGrid::dropFiles (const juce::StringArray& files, juce::Point<int> po
         clip.setProperty (id::offset, 0.0, nullptr);
         clip.setProperty (id::clipGain, 0.0, nullptr);
         clip.setProperty (id::stretch, 1.0, nullptr);
+        const double bpm = engine.estimateFileBpm (File (fpath));
+        if (bpm > 0) clip.setProperty (id::bpm, bpm, nullptr);
         session.setSlotClip (track, scene[id::uid].toString(), clip);
         ++row;
     }
@@ -479,6 +648,8 @@ void SessionGrid::resized()
     auto bar = getLocalBounds().removeFromTop (kBarH).reduced (4, 3);
     bar.removeFromLeft (290);
     quantBox.setBounds (bar.removeFromLeft (90));
+    bar.removeFromLeft (6);
+    followBtn.setBounds (bar.removeFromLeft (74));
     bar.removeFromLeft (6);
     stopAllBtn.setBounds (bar.removeFromLeft (80));
     bar.removeFromLeft (6);

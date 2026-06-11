@@ -5,6 +5,7 @@
 #include "ClipPlayer.h"
 #include "MidiSource.h"
 #include "StretchCache.h"
+#include "Analysis.h"
 
 namespace dg
 {
@@ -72,6 +73,13 @@ public:
     struct SlotState { String playing, pending; };
     SlotState getSessionState (const String& trackUid);     // message thread
     std::atomic<double> launchQuantizeBeats { 4.0 };
+    juce::int64 getNextLaunchBoundary() { return nextLaunchBoundary(); }
+    double getSessionLoopPhase (const String& trackUid) const;   // 0..1 while looping, else -1
+    double estimateFileBpm (const File& f)
+    {
+        auto r = createAnyReader (f);
+        return r != nullptr ? estimateBpmFromReader (*r) : 0.0;
+    }
 
     // ---- modulation (PATCH view) ----
     // sources: 0..3 = LFO1..4, 4 = chaos (Lorenz), 5 = envelope follower

@@ -59,7 +59,11 @@ ASIO: drop the Steinberg ASIO SDK in and enable `JUCE_ASIO=1` in `CMakeLists.txt
   scenes as rows; click a slot to launch it quantized (combo top-right, default 1 bar);
   clips loop in sync until the track's stop square or STOP ALL; scene ▶ fires a row.
   Click an empty MIDI cell to create a loop and edit it in the piano roll; drop audio
-  files onto audio cells. Right-click a slot: delete / rename / loop length.
+  files onto audio cells (waveforms and MIDI notes draw inside the slots, with a live
+  loop-progress sweep). Right-click a slot: delete / rename / loop length / **Detect
+  BPM** / **Conform to project tempo** (drops auto-detect BPM — the badge in the corner).
+  **FOLLOW** = tracker mode: scenes chain automatically; right-click a scene to set its
+  bars (1-16) and watch the row highlight walk down the grid.
 - Drag audio files anywhere in the window to import (`.dgproj` opens, video files load
   the video track). Formats: WAV/AIFF/FLAC/OGG/MP3 natively; with **ffmpeg** installed,
   anything it can decode (opus, m4a, wma, exotic wavs, ...) bridges in via a one-time

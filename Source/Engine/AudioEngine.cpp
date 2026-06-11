@@ -1680,6 +1680,29 @@ void AudioEngine::stopAllSession()
     }
 }
 
+double AudioEngine::getSessionLoopPhase (const String& uid) const
+{
+    auto it = trackNodes.find (uid);
+    if (it == trackNodes.end() || it->second.source == nullptr) return -1.0;
+    auto* proc = it->second.source->getProcessor();
+
+    if (auto* a = dynamic_cast<ClipPlayerProcessor*> (proc))
+    {
+        if (! a->sessEngaged.load() || a->sessLen.load() <= 0) return -1.0;
+        juce::int64 local = (transportPos.load() - a->sessStart.load()) % a->sessLen.load();
+        if (local < 0) local += a->sessLen.load();
+        return (double) local / (double) a->sessLen.load();
+    }
+    if (auto* m = dynamic_cast<MidiSourceProcessor*> (proc))
+    {
+        if (! m->sessEngaged.load() || m->sessLen.load() <= 0) return -1.0;
+        juce::int64 local = (transportPos.load() - m->sessStart.load()) % m->sessLen.load();
+        if (local < 0) local += m->sessLen.load();
+        return (double) local / (double) m->sessLen.load();
+    }
+    return -1.0;
+}
+
 AudioEngine::SlotState AudioEngine::getSessionState (const String& uid)
 {
     auto& st = sessUI[uid];

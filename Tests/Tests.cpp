@@ -8,6 +8,7 @@
 #include "../Source/Engine/ClipPlayer.h"
 #include "../Source/Engine/Processors.h"
 #include "../Source/Engine/StretchCache.h"
+#include "../Source/Engine/Analysis.h"
 #include "../Source/Rack/RackProcessor.h"
 
 using namespace dg;
@@ -334,6 +335,42 @@ struct InstrumentTests : juce::UnitTest
     }
 };
 
+// =========================================================================== analysis
+
+struct AnalysisTests : juce::UnitTest
+{
+    AnalysisTests() : UnitTest ("BpmEstimate") {}
+    void runTest() override
+    {
+        beginTest ("140 bpm click track detects within 2 bpm");
+        const double sr = 44100.0, bpm = 140.0;
+        const int len = (int) (sr * 16.0);
+        juce::AudioBuffer<float> b (1, len);
+        b.clear();
+        const double beat = sr * 60.0 / bpm;
+        for (double p = 0; p < len - 600; p += beat)            // decaying click per beat
+            for (int i = 0; i < 600; ++i)
+                b.setSample (0, (int) p + i, (float) (std::sin (i * 0.45) * std::exp (-i / 120.0)));
+
+        const File f = File::getSpecialLocation (File::tempDirectory).getChildFile ("ruin-bpm-test.wav");
+        f.deleteFile();
+        {
+            juce::WavAudioFormat wav;
+            auto out = f.createOutputStream();
+            std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (out.get(), sr, 1, 16, {}, 0));
+            out.release();
+            w->writeFromAudioSampleBuffer (b, 0, len);
+        }
+        juce::AudioFormatManager fm;
+        fm.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> r (fm.createReaderFor (f));
+        expect (r != nullptr);
+        const double est = estimateBpmFromReader (*r);
+        expectWithinAbsoluteError (est, bpm, 2.0);
+        f.deleteFile();
+    }
+};
+
 // =========================================================================== stretch
 
 struct StretchTests : juce::UnitTest
@@ -391,6 +428,7 @@ static ClipOpsTests clipOpsTests;
 static CrossfadeTests crossfadeTests;
 static RackTests rackTests;
 static InstrumentTests instrumentTests;
+static AnalysisTests analysisTests;
 static StretchTests stretchTests;
 
 int main()
