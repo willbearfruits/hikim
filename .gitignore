@@ -1,0 +1,6 @@
+build/
+build-*/
+build-*.log
+.cache/
+compile_commands.json
+*.dgproj_backup
