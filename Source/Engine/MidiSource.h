@@ -7,7 +7,11 @@ namespace dg
 class AudioEngine;
 
 struct MidiNoteRT { juce::int64 on, off; juce::uint8 note, vel; };
-struct MidiPlaylist { std::vector<MidiNoteRT> notes; };   // sorted by 'on', pre-clipped to clips
+struct MidiPlaylist
+{
+    std::vector<MidiNoteRT> notes;     // sorted by 'on', pre-clipped to clips
+    juce::int64 maxLen = 0;            // longest note: bounds the lower_bound window in emitSpan
+};
 
 // MIDI-track source node: emits clip notes + live thru (when armed) into the
 // instrument node downstream. All-notes-off on stop/seek/loop-wrap via engine flag.

@@ -84,7 +84,10 @@ public:
     // ---- modulation (PATCH view) ----
     // sources: 0..3 = LFO1..4, 4 = chaos (Lorenz), 5 = envelope follower
     static constexpr int kNumModSources = 6;
-    juce::AudioProcessorParameter* resolveParamTarget (const String& trackUid, const String& target) const;
+    // owner (optional out) receives the graph node the parameter lives on, so
+    // callers can keep the processor alive for as long as they hold the pointer
+    juce::AudioProcessorParameter* resolveParamTarget (const String& trackUid, const String& target,
+                                                       juce::AudioProcessorGraph::Node::Ptr* owner = nullptr) const;
     float getModSourceValue (int idx) const { return modSrcValues[(size_t) juce::jlimit (0, 5, idx)].load(); }
 
     // ---- ui midi tap (step input, midi indicators) ----
@@ -168,18 +171,22 @@ private:
     struct LaneRT
     {
         juce::AudioProcessorParameter* param = nullptr;
+        juce::AudioProcessorGraph::Node::Ptr owner;     // keeps the processor alive while the snapshot lives
         int mode = 0;                                   // 0 off, 1 read, 2 touch, 3 write
         std::vector<std::pair<juce::int64, float>> pts; // (samples, normalised)
         std::shared_ptr<std::atomic<bool>> touching;
+        bool hosted = false;                            // hosted plugin: param applied by the message-thread pump
+        std::shared_ptr<std::atomic<float>> hostedVal, hostedApplied;
     };
 
     struct LaneListener : juce::AudioProcessorParameter::Listener
     {
         AudioEngine& e; int laneIdx; std::shared_ptr<std::atomic<bool>> touching;
         juce::AudioProcessorParameter* param;
+        juce::AudioProcessorGraph::Node::Ptr owner;     // param must outlive removeListener below
         LaneListener (AudioEngine& en, int idx, juce::AudioProcessorParameter* p,
-                      std::shared_ptr<std::atomic<bool>> t)
-            : e (en), laneIdx (idx), touching (std::move (t)), param (p) { param->addListener (this); }
+                      std::shared_ptr<std::atomic<bool>> t, juce::AudioProcessorGraph::Node::Ptr o)
+            : e (en), laneIdx (idx), touching (std::move (t)), param (p), owner (std::move (o)) { param->addListener (this); }
         ~LaneListener() override { param->removeListener (this); }
         void parameterValueChanged (int, float v) override { e.automationParamChanged (laneIdx, v); }
         void parameterGestureChanged (int, bool starting) override { touching->store (starting); }
@@ -309,20 +316,23 @@ private:
     std::vector<std::shared_ptr<const std::vector<LaneRT>>> laneGraveyard;
     std::vector<std::unique_ptr<LaneListener>> laneListeners;
     std::vector<ValueTree> laneTrees;
-    std::atomic<bool> applyingAutomation { false };
+    std::atomic<int> applyingAutomation { 0 };      // counter: raised by the audio thread AND the hosted pump
     std::atomic<bool> automationActive { false };   // any read/touch lane with points
-    juce::CriticalSection writeLock;
+    juce::CriticalSection writeLock;                // producers only tryEnter (audio-thread reachable)
     struct WriteEvt { int laneIdx; juce::int64 t; float v; };
-    std::vector<WriteEvt> writeEvents;
+    std::vector<WriteEvt> writeEvents;              // capacity reserved up front; never grown by producers
 
     // modulation: everything modulates everything
     struct ModConn
     {
         juce::AudioProcessorParameter* param = nullptr;
+        juce::AudioProcessorGraph::Node::Ptr owner;     // keeps the processor alive while the snapshot lives
         int src = 0;
         float amount = 0;
         std::shared_ptr<std::atomic<float>> base;
         String uid;
+        bool hosted = false;                            // hosted plugin: param applied by the message-thread pump
+        std::shared_ptr<std::atomic<float>> hostedVal, hostedApplied;
     };
     struct ModRTState
     {
@@ -337,12 +347,14 @@ private:
         AudioEngine& e;
         juce::AudioProcessorParameter* param;
         std::shared_ptr<std::atomic<float>> base;
-        ModListener (AudioEngine& en, juce::AudioProcessorParameter* p, std::shared_ptr<std::atomic<float>> b)
-            : e (en), param (p), base (std::move (b)) { param->addListener (this); }
+        juce::AudioProcessorGraph::Node::Ptr owner;     // param must outlive removeListener below
+        ModListener (AudioEngine& en, juce::AudioProcessorParameter* p, std::shared_ptr<std::atomic<float>> b,
+                     juce::AudioProcessorGraph::Node::Ptr o)
+            : e (en), param (p), base (std::move (b)), owner (std::move (o)) { param->addListener (this); }
         ~ModListener() override { param->removeListener (this); }
         void parameterValueChanged (int, float v) override
         {
-            if (! e.applyingAutomation.load()) base->store (v);   // user moved the knob: new centre
+            if (e.applyingAutomation.load() == 0) base->store (v);   // user moved the knob: new centre
         }
         void parameterGestureChanged (int, bool) override {}
     };
@@ -351,6 +363,18 @@ private:
     std::shared_ptr<const ModRTState> pendingMods, rtMods;
     std::vector<std::shared_ptr<const ModRTState>> modGraveyard;
     std::vector<std::unique_ptr<ModListener>> modListeners;
+
+    // hosted-plugin params: the VST3 controller side must not be poked from the
+    // audio thread, so automation/mod values land in per-entry atomics and this
+    // UI-rate pump delivers them on the message thread
+    void flushHostedParams();
+    struct HostedPump : juce::Timer
+    {
+        AudioEngine& e;
+        explicit HostedPump (AudioEngine& en) : e (en) {}
+        void timerCallback() override { e.flushHostedParams(); }
+    };
+    HostedPump hostedPump { *this };
     std::array<std::atomic<float>, 6> modSrcValues {};
     double lorenz[3] { 0.1, 0.0, 0.0 };
     float followEnv = 0.0f;

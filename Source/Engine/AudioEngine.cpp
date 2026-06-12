@@ -38,6 +38,8 @@ AudioEngine::AudioEngine (SessionModel& s, PluginHost& ph, juce::PropertiesFile*
     previewPlayer.setSource (&previewTransport);
     deviceManager.addAudioCallback (&previewPlayer);
 
+    writeEvents.reserve (1 << 16);     // producers tryEnter+push from RT-reachable paths: no growth allowed
+    hostedPump.startTimer (33);
     startTimer (1000);
     sessionReplaced();
 }
@@ -727,6 +729,8 @@ void AudioEngine::updateTrackPlaylists (const ValueTree& t)
             }
         }
         std::sort (pl->notes.begin(), pl->notes.end(), [] (auto& a, auto& b) { return a.on < b.on; });
+        for (const auto& n : pl->notes)
+            pl->maxLen = juce::jmax (pl->maxLen, n.off - n.on);
         midiGraveyard.push_back (lastMidiPlaylists[uid]);
         lastMidiPlaylists[uid] = pl;
         static_cast<MidiSourceProcessor*> (tn.source->getProcessor())->setPlaylist (pl);
@@ -821,34 +825,40 @@ int AudioEngine::getTotalLatencySamples() const
 
 // ============================================================ automation / modulation
 
-juce::AudioProcessorParameter* AudioEngine::resolveParamTarget (const String& trackUid, const String& target) const
+juce::AudioProcessorParameter* AudioEngine::resolveParamTarget (const String& trackUid, const String& target,
+                                                                juce::AudioProcessorGraph::Node::Ptr* owner) const
 {
     auto it = trackNodes.find (trackUid);
     if (it == trackNodes.end()) return nullptr;
     const auto& tn = it->second;
+    auto resolved = [owner] (juce::AudioProcessorGraph::Node::Ptr node, juce::AudioProcessorParameter* p)
+    {
+        if (owner != nullptr) *owner = std::move (node);
+        return p;
+    };
 
     if (target.startsWith ("strip:") && tn.strip != nullptr)
     {
         auto* st = static_cast<ChannelStripProcessor*> (tn.strip->getProcessor());
-        if (target == "strip:gain") return st->gainDb;
-        if (target == "strip:pan")  return st->pan;
-        if (target == "strip:mute") return st->mute;
+        if (target == "strip:gain") return resolved (tn.strip, st->gainDb);
+        if (target == "strip:pan")  return resolved (tn.strip, st->pan);
+        if (target == "strip:mute") return resolved (tn.strip, st->mute);
         return nullptr;
     }
     if (target == "send:A" && tn.sendA != nullptr)
-        return static_cast<SendProcessor*> (tn.sendA->getProcessor())->levelDb;
+        return resolved (tn.sendA, static_cast<SendProcessor*> (tn.sendA->getProcessor())->levelDb);
     if (target == "send:B" && tn.sendB != nullptr)
-        return static_cast<SendProcessor*> (tn.sendB->getProcessor())->levelDb;
+        return resolved (tn.sendB, static_cast<SendProcessor*> (tn.sendB->getProcessor())->levelDb);
     if (target.startsWith ("ins:"))
     {
         const String rest = target.fromFirstOccurrenceOf ("ins:", false, false);
         const String iuid = rest.upToFirstOccurrenceOf (":", false, false);
         const int pidx = rest.fromFirstOccurrenceOf (":", false, false).getIntValue();
-        if (auto* proc = getInsertProcessor (iuid))
+        if (auto in = insertNodes.find (iuid); in != insertNodes.end())
         {
-            const auto& params = proc->getParameters();
+            const auto& params = in->second->getProcessor()->getParameters();
             if (pidx >= 0 && pidx < params.size())
-                return params[pidx];
+                return resolved (in->second, params[pidx]);
         }
     }
     return nullptr;
@@ -874,12 +884,21 @@ void AudioEngine::rebuildMods()
         if (! m.hasType (id::MOD)) continue;
         auto targetNode = modsTree.getChildWithProperty (id::uid, m[id::target]);
         if (! targetNode.isValid()) continue;
+        juce::AudioProcessorGraph::Node::Ptr owner;
         auto* param = resolveParamTarget (targetNode[id::track].toString(),
-                                          targetNode[id::param].toString());
+                                          targetNode[id::param].toString(), &owner);
         if (param == nullptr) continue;
 
         ModConn c;
         c.param = param;
+        c.owner = owner;
+        c.hosted = owner != nullptr
+                   && dynamic_cast<juce::AudioPluginInstance*> (owner->getProcessor()) != nullptr;
+        if (c.hosted)
+        {
+            c.hostedVal     = std::make_shared<std::atomic<float>> (std::numeric_limits<float>::quiet_NaN());
+            c.hostedApplied = std::make_shared<std::atomic<float>> (std::numeric_limits<float>::quiet_NaN());
+        }
         const String src = m[id::src].toString();
         c.src = src == "lfo1" ? 0 : src == "lfo2" ? 1 : src == "lfo3" ? 2 : src == "lfo4" ? 3
               : src == "chaos" ? 4 : 5;
@@ -888,7 +907,7 @@ void AudioEngine::rebuildMods()
         const float baseVal = m.hasProperty (id::base) ? (float) (double) m[id::base]
                                                        : param->getValue();
         c.base = std::make_shared<std::atomic<float>> (baseVal);
-        modListeners.push_back (std::make_unique<ModListener> (*this, param, c.base));
+        modListeners.push_back (std::make_unique<ModListener> (*this, param, c.base, owner));
         next->conns.push_back (std::move (c));
     }
 
@@ -950,14 +969,16 @@ void AudioEngine::applyMods (juce::int64 pos, int numSamples)
         modSrcValues[(size_t) i].store (vals[i]);
 
     if (mods->conns.empty()) return;
-    applyingAutomation = true;
+    ++applyingAutomation;
     for (const auto& c : mods->conns)
     {
         const float nv = juce::jlimit (0.0f, 1.0f, c.base->load() + c.amount * vals[c.src]);
-        if (std::abs (c.param->getValue() - nv) > 0.0008f)
+        if (c.hosted)
+            c.hostedVal->store (nv);    // VST3 controller calls are message-thread only; the pump delivers
+        else if (std::abs (c.param->getValue() - nv) > 0.0008f)
             c.param->setValueNotifyingHost (nv);
     }
-    applyingAutomation = false;
+    --applyingAutomation;
 }
 
 void AudioEngine::detachAutomation()
@@ -979,11 +1000,20 @@ void AudioEngine::rebuildAutomation()
 
         for (const auto& lane : t.getChildWithName (id::AUTO))
         {
-            auto* param = resolveParamTarget (uid, lane[id::param].toString());
+            juce::AudioProcessorGraph::Node::Ptr owner;
+            auto* param = resolveParamTarget (uid, lane[id::param].toString(), &owner);
             if (param == nullptr) continue;
 
             LaneRT rt;
             rt.param = param;
+            rt.owner = owner;
+            rt.hosted = owner != nullptr
+                        && dynamic_cast<juce::AudioPluginInstance*> (owner->getProcessor()) != nullptr;
+            if (rt.hosted)
+            {
+                rt.hostedVal     = std::make_shared<std::atomic<float>> (std::numeric_limits<float>::quiet_NaN());
+                rt.hostedApplied = std::make_shared<std::atomic<float>> (std::numeric_limits<float>::quiet_NaN());
+            }
             rt.mode = (int) lane.getProperty (id::mode, 1);
             rt.touching = std::make_shared<std::atomic<bool>> (false);
             for (const auto& pt : lane)
@@ -995,7 +1025,8 @@ void AudioEngine::rebuildAutomation()
             const int laneIdx = (int) lanes->size();
             lanes->push_back (std::move (rt));
             laneTrees.push_back (lane);
-            laneListeners.push_back (std::make_unique<LaneListener> (*this, laneIdx, param, lanes->back().touching));
+            laneListeners.push_back (std::make_unique<LaneListener> (*this, laneIdx, param,
+                                                                     lanes->back().touching, owner));
         }
     }
 
@@ -1020,7 +1051,7 @@ void AudioEngine::applyAutomation (juce::int64 pos)
     }
     if (rtLanes == nullptr) return;
 
-    applyingAutomation = true;
+    ++applyingAutomation;
     for (const auto& lane : *rtLanes)
     {
         if (lane.pts.empty() || lane.param == nullptr) continue;
@@ -1039,27 +1070,75 @@ void AudioEngine::applyAutomation (juce::int64 pos)
             const double a = span > 0 ? (double) (pos - p0->first) / span : 0.0;
             v = (float) (p0->second + a * (it->second - p0->second));
         }
-        if (std::abs (lane.param->getValue() - v) > 0.0005f)
+        if (lane.hosted)
+            lane.hostedVal->store (v);  // VST3 controller calls are message-thread only; the pump delivers
+        else if (std::abs (lane.param->getValue() - v) > 0.0005f)
             lane.param->setValueNotifyingHost (v);
     }
-    applyingAutomation = false;
+    --applyingAutomation;
+}
+
+void AudioEngine::flushHostedParams()
+{
+    // message thread, UI rate: deliver the audio thread's latest values to
+    // hosted plugins' controller side (and recentre nothing - the listeners see
+    // applyingAutomation and ignore these)
+    auto apply = [] (juce::AudioProcessorParameter* p, std::atomic<float>& val, std::atomic<float>& applied)
+    {
+        const float v = val.load();
+        if (std::isnan (v)) return;
+        const float a = applied.load();
+        if (! std::isnan (a) && std::abs (a - v) < 1.0e-4f) return;
+        p->setValueNotifyingHost (v);
+        applied.store (v);
+    };
+
+    std::shared_ptr<const std::vector<LaneRT>> lanes;
+    {
+        juce::SpinLock::ScopedLockType sl (laneLock);
+        lanes = pendingLanes;
+    }
+    std::shared_ptr<const ModRTState> mods;
+    {
+        juce::SpinLock::ScopedLockType sl (modLock);
+        mods = pendingMods;
+    }
+
+    ++applyingAutomation;
+    if (lanes != nullptr)
+        for (const auto& lane : *lanes)
+            if (lane.hosted)
+                apply (lane.param, *lane.hostedVal, *lane.hostedApplied);
+    if (mods != nullptr)
+        for (const auto& c : mods->conns)
+            if (c.hosted)
+                apply (c.param, *c.hostedVal, *c.hostedApplied);
+    --applyingAutomation;
 }
 
 void AudioEngine::automationParamChanged (int laneIdx, float v)
 {
-    if (applyingAutomation.load() || ! transportPlaying.load()) return;
+    if (applyingAutomation.load() > 0 || ! transportPlaying.load()) return;
+
+    // reachable from the audio thread (rack CC/macro fan-out fires parameter
+    // listeners synchronously) - never block, never allocate; dropping one
+    // UI-rate event during a rebuild is inaudible
     std::shared_ptr<const std::vector<LaneRT>> lanes;
     {
-        juce::SpinLock::ScopedLockType sl (laneLock);
+        juce::SpinLock::ScopedTryLockType sl (laneLock);
+        if (! sl.isLocked()) return;
         lanes = pendingLanes;
     }
     if (lanes == nullptr || laneIdx >= (int) lanes->size()) return;
     const auto& lane = (*lanes)[laneIdx];
     if (lane.mode == 3 || (lane.mode == 2 && lane.touching->load()))
     {
-        const juce::ScopedLock sl (writeLock);
-        if (writeEvents.size() < 1 << 16)
-            writeEvents.push_back ({ laneIdx, transportPos.load(), v });
+        if (writeLock.tryEnter())
+        {
+            if (writeEvents.size() < writeEvents.capacity())   // reserved in ctor: push never reallocates
+                writeEvents.push_back ({ laneIdx, transportPos.load(), v });
+            writeLock.exit();
+        }
     }
 }
 
@@ -1068,7 +1147,8 @@ std::vector<AudioEngine::AutoWrite> AudioEngine::drainAutomationWrites()
     std::vector<WriteEvt> evts;
     {
         const juce::ScopedLock sl (writeLock);
-        evts.swap (writeEvents);
+        evts.assign (writeEvents.begin(), writeEvents.end());
+        writeEvents.clear();                                   // keeps the reserved capacity
     }
     std::vector<AutoWrite> out;
     for (const auto& e : evts)
@@ -1682,6 +1762,8 @@ void AudioEngine::launchSlot (ValueTree track, ValueTree clip)
             pl->notes.push_back (n);
         }
         std::sort (pl->notes.begin(), pl->notes.end(), [] (auto& x, auto& y) { return x.on < y.on; });
+        for (const auto& n : pl->notes)
+            pl->maxLen = juce::jmax (pl->maxLen, n.off - n.on);
 
         midiGraveyard.push_back (lastMidiPlaylists["sess:" + uid]);
         lastMidiPlaylists["sess:" + uid] = pl;

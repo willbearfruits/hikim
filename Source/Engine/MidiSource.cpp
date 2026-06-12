@@ -22,8 +22,14 @@ void MidiSourceProcessor::setSessionClip (std::shared_ptr<const MidiPlaylist> p)
 void MidiSourceProcessor::emitSpan (juce::MidiBuffer& midi, const MidiPlaylist& pl,
                                     juce::int64 localStart, int count, int bufOffset)
 {
-    for (const auto& note : pl.notes)
+    // notes are sorted by 'on'; any note whose off can still land in this span
+    // starts at or after localStart - maxLen, so skip the elapsed history
+    // instead of rescanning it every block
+    auto it = std::lower_bound (pl.notes.begin(), pl.notes.end(), localStart - pl.maxLen,
+                                [] (const MidiNoteRT& n, juce::int64 t) { return n.on < t; });
+    for (; it != pl.notes.end(); ++it)
     {
+        const auto& note = *it;
         if (note.on >= localStart + count) break;
         if (note.on >= localStart)
             midi.addEvent (juce::MidiMessage::noteOn (1, note.note, note.vel),
