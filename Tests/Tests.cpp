@@ -4,8 +4,10 @@
 #include <JuceHeader.h>
 #include "../Source/Model/Session.h"
 #include "../Source/Model/ClipOps.h"
+#include "../Source/Model/AutoGen.h"
 #include "../Source/Engine/TempoMap.h"
 #include "../Source/Engine/ClipPlayer.h"
+#include "../Source/Engine/MidiSource.h"
 #include "../Source/Engine/Processors.h"
 #include "../Source/Engine/StretchCache.h"
 #include "../Source/Engine/Analysis.h"
@@ -676,6 +678,606 @@ struct StretchTests : juce::UnitTest
     }
 };
 
+// =========================================================================== clip loop + slip
+
+struct ClipLoopSlipTests : juce::UnitTest
+{
+    ClipLoopSlipTests() : UnitTest ("ClipLoopSlip") {}
+    void runTest() override
+    {
+        beginTest ("setLoop seeds the audio pass from the content length");
+        SessionModel s;
+        TempoMap map (s.tempoMap(), 48000.0);
+        auto track = s.addTrack ("audio", "T");
+        auto clip = addTestClip (s, track, 0.0, 8.0);
+        const String uid = clip[id::uid].toString();
+        clipops::setLoop (s, map, { uid }, true, [] (const ValueTree&) { return 2.0; });
+        expect ((bool) clip[id::loop]);
+        expectWithinAbsoluteError ((double) clip[id::loopLen], 2.0, 1.0e-12);
+
+        beginTest ("disable keeps the stored pass for re-enable");
+        clipops::setLoop (s, map, { uid }, false);
+        expect (! (bool) clip[id::loop]);
+        expectWithinAbsoluteError ((double) clip[id::loopLen], 2.0, 1.0e-12);
+        clipops::setLoop (s, map, { uid }, true, [] (const ValueTree&) { return 999.0; });
+        expectWithinAbsoluteError ((double) clip[id::loopLen], 2.0, 1.0e-12);    // not re-seeded
+
+        beginTest ("audio slip slides the source window and clamps at the file start");
+        SessionModel s2;
+        TempoMap map2 (s2.tempoMap(), 48000.0);
+        auto tr2 = s2.addTrack ("audio", "T");
+        auto c2 = addTestClip (s2, tr2, 0.0, 4.0);                   // offset starts 0
+        const String uid2 = c2[id::uid].toString();
+        clipops::slip (s2, map2, { uid2 }, -0.5);                    // content earlier: later source
+        expectWithinAbsoluteError ((double) c2[id::offset], 24000.0, 1.0e-6);
+        clipops::slip (s2, map2, { uid2 }, 0.25);
+        expectWithinAbsoluteError ((double) c2[id::offset], 12000.0, 1.0e-6);
+        clipops::slip (s2, map2, { uid2 }, 2.0);                     // past the file start: clamp
+        expectWithinAbsoluteError ((double) c2[id::offset], 0.0, 1.0e-12);
+
+        beginTest ("slip undoes in one step");
+        SessionModel s3;
+        TempoMap map3 (s3.tempoMap(), 48000.0);
+        auto tr3 = s3.addTrack ("audio", "T");
+        auto c3 = addTestClip (s3, tr3, 0.0, 4.0);
+        clipops::slip (s3, map3, { c3[id::uid].toString() }, -0.5);
+        expectWithinAbsoluteError ((double) c3[id::offset], 24000.0, 1.0e-6);
+        s3.undo.undo();
+        expectWithinAbsoluteError ((double) c3[id::offset], 0.0, 1.0e-12);
+
+        beginTest ("midi setLoop seeds whole beats and slip rotates the pass");
+        SessionModel s4;
+        TempoMap map4 (s4.tempoMap(), 48000.0);                      // 120 bpm: 1 beat = 0.5 s
+        auto tr4 = s4.addTrack ("midi", "T");
+        auto c4 = s4.addMidiClip (tr4, 0.0, 2.0);                    // 4 beats
+        ValueTree note (id::NOTE);
+        note.setProperty (id::beat, 3.0, nullptr);
+        note.setProperty (id::len, 0.5, nullptr);
+        note.setProperty (id::pitch, 60, nullptr);
+        note.setProperty (id::vel, 100, nullptr);
+        c4.getChildWithName (id::NOTES).appendChild (note, nullptr);
+        clipops::setLoop (s4, map4, { c4[id::uid].toString() }, true);
+        expectWithinAbsoluteError ((double) c4[id::loopBeats], 4.0, 1.0e-12);
+        clipops::slip (s4, map4, { c4[id::uid].toString() }, 0.5);   // +1 beat: 3 wraps to 0
+        expectWithinAbsoluteError ((double) note[id::beat], 0.0, 1.0e-9);
+        clipops::slip (s4, map4, { c4[id::uid].toString() }, -1.0);  // -2 beats: 0 wraps to 2
+        expectWithinAbsoluteError ((double) note[id::beat], 2.0, 1.0e-9);
+
+        beginTest ("split keeps a looped audio clip's pass phase");
+        SessionModel s5;
+        TempoMap map5 (s5.tempoMap(), 48000.0);
+        auto tr5 = s5.addTrack ("audio", "T");
+        auto c5 = addTestClip (s5, tr5, 0.0, 8.0);
+        const String uid5 = c5[id::uid].toString();
+        clipops::setLoop (s5, map5, { uid5 }, true, [] (const ValueTree&) { return 2.0; });
+        clipops::splitAt (s5, map5, { uid5 }, 5.0);                  // 5 s = 2 passes + 1 s phase
+        auto clips5 = SessionModel::clipsOf (tr5);
+        expectEquals (clips5.getNumChildren(), 2);
+        auto right5 = clips5.getChild (1);
+        expect ((bool) right5[id::loop]);
+        expectWithinAbsoluteError ((double) right5[id::loopLen], 2.0, 1.0e-12);
+        expectWithinAbsoluteError ((double) right5[id::offset], 48000.0, 1.0);   // 1 s into the pass
+
+        beginTest ("split rotates a looped midi clip's notes");
+        SessionModel s6;
+        TempoMap map6 (s6.tempoMap(), 48000.0);
+        auto tr6 = s6.addTrack ("midi", "T");
+        auto c6 = s6.addMidiClip (tr6, 0.0, 4.0);                    // 8 beats
+        ValueTree n6 (id::NOTE);
+        n6.setProperty (id::beat, 1.0, nullptr);
+        n6.setProperty (id::len, 0.5, nullptr);
+        n6.setProperty (id::pitch, 64, nullptr);
+        n6.setProperty (id::vel, 90, nullptr);
+        c6.getChildWithName (id::NOTES).appendChild (n6, nullptr);
+        clipops::setLoop (s6, map6, { c6[id::uid].toString() }, true);   // seeds loopBeats = 8
+        c6.setProperty (id::loopBeats, 4.0, nullptr);                    // tighten to a 4-beat pass
+        clipops::splitAt (s6, map6, { c6[id::uid].toString() }, 1.5);    // beat 3: phase 3
+        auto clips6 = SessionModel::clipsOf (tr6);
+        expectEquals (clips6.getNumChildren(), 2);
+        expectEquals (c6.getChildWithName (id::NOTES).getNumChildren(), 1);   // left keeps looping content
+        auto rn6 = clips6.getChild (1).getChildWithName (id::NOTES).getChild (0);
+        expectWithinAbsoluteError ((double) rn6[id::beat], 2.0, 1.0e-9);      // (1 - 3) mod 4
+    }
+};
+
+// =========================================================================== looped playback
+
+namespace
+{
+    // Deterministic fake source: sample value == sample index, both channels.
+    struct RampReader : juce::AudioFormatReader
+    {
+        RampReader() : juce::AudioFormatReader (nullptr, "ramp")
+        {
+            sampleRate = 48000.0;
+            bitsPerSample = 32;
+            lengthInSamples = 48000;
+            numChannels = 2;
+            usesFloatingPointData = true;
+        }
+        bool readSamples (int* const* dest, int numDestChannels, int startOffsetInDestBuffer,
+                          juce::int64 startSampleInFile, int numSamples) override
+        {
+            for (int ch = 0; ch < numDestChannels; ++ch)
+            {
+                if (dest[ch] == nullptr) continue;
+                auto* d = reinterpret_cast<float*> (dest[ch]) + startOffsetInDestBuffer;
+                for (int i = 0; i < numSamples; ++i)
+                {
+                    const juce::int64 p = startSampleInFile + i;
+                    d[i] = (p >= 0 && p < lengthInSamples) ? (float) p : 0.0f;
+                }
+            }
+            return true;
+        }
+    };
+}
+
+struct LoopedRenderTests : juce::UnitTest
+{
+    LoopedRenderTests() : UnitTest ("LoopedRender") {}
+
+    std::vector<float> render (const AudioClipRT& c, int total, int blockSize)
+    {
+        juce::AudioBuffer<float> out (2, blockSize), scratch (2, 4096);
+        std::vector<float> got ((size_t) total, 0.0f);
+        for (juce::int64 bs = 0; bs < total; bs += blockSize)
+        {
+            const int n = (int) juce::jmin ((juce::int64) blockSize, (juce::int64) total - bs);
+            out.clear();
+            renderClipSpan (c, out, bs, n, scratch);
+            for (int i = 0; i < n; ++i)
+                got[(size_t) (bs + i)] = out.getSample (0, i);
+        }
+        return got;
+    }
+
+    void runTest() override
+    {
+        AudioClipRT c;
+        c.start = 100;
+        c.length = 600;
+        c.offset = 0;
+        c.ratio = 1.0;
+        c.reader = std::make_shared<RampReader>();
+        c.numFileChannels = 2;
+        c.fileLength = c.reader->lengthInSamples;
+
+        beginTest ("unlooped clip plays the source linearly");
+        auto lin = render (c, 900, 256);
+        bool ok = true;
+        for (int i = 0; i < 900 && ok; ++i)
+        {
+            const float want = (i >= 100 && i < 700) ? (float) (i - 100) : 0.0f;
+            ok = std::abs (lin[(size_t) i] - want) < 1.0e-4f;
+        }
+        expect (ok, "linear content");
+
+        beginTest ("looped clip repeats its pass to fill the length");
+        c.loopLen = 200;
+        for (const int blockSize : { 256, 480, 37 })            // boundaries mid-block and aligned
+        {
+            auto got = render (c, 900, blockSize);
+            ok = true;
+            for (int i = 0; i < 900 && ok; ++i)
+            {
+                const float want = (i >= 100 && i < 700) ? (float) ((i - 100) % 200) : 0.0f;
+                ok = std::abs (got[(size_t) i] - want) < 1.0e-4f;
+            }
+            expect (ok, "block size " + String (blockSize));
+        }
+
+        beginTest ("looped pass honours the source offset");
+        c.offset = 1000;
+        auto offGot = render (c, 900, 256);
+        ok = true;
+        for (int i = 100; i < 700 && ok; ++i)
+            ok = std::abs (offGot[(size_t) i] - (float) (1000 + (i - 100) % 200)) < 1.0e-4f;
+        expect (ok, "offset + pass phase");
+
+        beginTest ("loop pass running past EOF goes silent, then wraps");
+        AudioClipRT e;
+        e.start = 0;
+        e.length = 400;
+        e.offset = 0;
+        e.ratio = 1.0;
+        e.loopLen = 200;
+        auto ramp = std::make_shared<RampReader>();
+        ramp->lengthInSamples = 150;                            // pass is 200, source only 150
+        e.reader = ramp;
+        e.numFileChannels = 2;
+        e.fileLength = 150;
+        auto eofGot = render (e, 400, 256);
+        ok = true;
+        for (int i = 0; i < 400 && ok; ++i)
+        {
+            const int ip = i % 200;
+            const float want = ip < 150 ? (float) ip : 0.0f;    // tail of each pass is silent
+            ok = std::abs (eofGot[(size_t) i] - want) < 1.0e-4f;
+        }
+        expect (ok, "EOF inside the pass");
+    }
+};
+
+// =========================================================================== midi loop expansion
+
+struct MidiLoopExpandTests : juce::UnitTest
+{
+    MidiLoopExpandTests() : UnitTest ("MidiLoopExpand") {}
+    void runTest() override
+    {
+        SessionModel s;
+        TempoMap map (s.tempoMap(), 48000.0);                   // 120 bpm: beat = 24000 samples
+        auto tr = s.addTrack ("midi", "T");
+        auto c = s.addMidiClip (tr, 0.0, 4.0);                  // 8 beats
+        c.setProperty (id::loop, true, nullptr);
+        c.setProperty (id::loopBeats, 4.0, nullptr);
+        auto notes = c.getChildWithName (id::NOTES);
+
+        auto addNote = [&notes] (double beat, double len, int pitch)
+        {
+            ValueTree n (id::NOTE);
+            n.setProperty (id::beat, beat, nullptr);
+            n.setProperty (id::len, len, nullptr);
+            n.setProperty (id::pitch, pitch, nullptr);
+            n.setProperty (id::vel, 100, nullptr);
+            notes.appendChild (n, nullptr);
+        };
+
+        beginTest ("notes repeat once per pass across the clip");
+        addNote (1.0, 0.5, 60);
+        MidiPlaylist pl;
+        appendClipNotes (pl, c, map, 48000.0);
+        expectEquals ((int) pl.notes.size(), 2);
+        expectEquals ((int) pl.notes[0].on, 24000);             // beat 1
+        expectEquals ((int) pl.notes[1].on, 120000);            // beat 5
+        expectEquals ((int) pl.notes[0].note, 60);
+
+        beginTest ("a held note is clamped at its pass end");
+        notes.removeAllChildren (nullptr);
+        addNote (3.0, 4.0, 61);                                 // would ring into its own repeat
+        MidiPlaylist pl2;
+        appendClipNotes (pl2, c, map, 48000.0);
+        expectEquals ((int) pl2.notes.size(), 2);
+        expectEquals ((int) pl2.notes[0].off, 96000);           // pass end at beat 4
+        expectEquals ((int) pl2.notes[1].off, 192000);          // clip end at beat 8
+
+        beginTest ("notes beyond the pass stay silent");
+        notes.removeAllChildren (nullptr);
+        addNote (5.0, 0.5, 62);                                 // pass is 4 beats
+        MidiPlaylist pl3;
+        appendClipNotes (pl3, c, map, 48000.0);
+        expectEquals ((int) pl3.notes.size(), 0);
+
+        beginTest ("unlooped expansion matches the old single-pass behaviour");
+        c.setProperty (id::loop, false, nullptr);
+        notes.removeAllChildren (nullptr);
+        addNote (1.0, 0.5, 60);
+        addNote (9.0, 0.5, 63);                                 // past the 8-beat clip: culled
+        MidiPlaylist pl4;
+        appendClipNotes (pl4, c, map, 48000.0);
+        expectEquals ((int) pl4.notes.size(), 1);
+        expectEquals ((int) pl4.notes[0].on, 24000);
+    }
+};
+
+// =========================================================================== crossfade handles
+
+struct CrossfadeHandleTests : juce::UnitTest
+{
+    CrossfadeHandleTests() : UnitTest ("CrossfadeHandles") {}
+    void runTest() override
+    {
+        beginTest ("overlapAt finds the partial tail/head overlap only");
+        SessionModel s;
+        auto track = s.addTrack ("audio", "T");
+        auto a = addTestClip (s, track, 0.0, 2.0);
+        auto b = addTestClip (s, track, 1.5, 2.0);              // overlap [1.5, 2.0]
+        auto ov = clipops::overlapAt (track, 1.75);
+        expect (ov.isValid());
+        expect (ov.left == a && ov.right == b);
+        expectWithinAbsoluteError (ov.start, 1.5, 1.0e-12);
+        expectWithinAbsoluteError (ov.end, 2.0, 1.0e-12);
+        expect (! clipops::overlapAt (track, 0.5).isValid());   // outside the overlap
+
+        beginTest ("containment is not a crossfade");
+        SessionModel s2;
+        auto tr2 = s2.addTrack ("audio", "T");
+        addTestClip (s2, tr2, 0.0, 10.0);
+        addTestClip (s2, tr2, 2.0, 1.0);                        // contained: layered, not faded
+        expect (! clipops::overlapAt (tr2, 2.5).isValid());
+
+        beginTest ("overlapsOf reports both sides");
+        expectEquals ((int) clipops::overlapsOf (a).size(), 1);
+        expectEquals ((int) clipops::overlapsOf (b).size(), 1);
+        expect (clipops::overlapsOf (b)[0].left == a);
+
+        beginTest ("rollBoundary slides the edit point, content stays anchored");
+        const double applied = clipops::rollBoundary (s, a, b, 0.25);
+        expectWithinAbsoluteError (applied, 0.25, 1.0e-12);
+        expectWithinAbsoluteError ((double) a[id::length], 2.25, 1.0e-9);
+        expectWithinAbsoluteError ((double) b[id::start], 1.75, 1.0e-9);
+        expectWithinAbsoluteError ((double) b[id::length], 1.75, 1.0e-9);   // far end fixed at 3.5
+        expectWithinAbsoluteError ((double) b[id::offset], 0.25 * 48000.0, 1.0);
+        auto ov2 = clipops::overlapAt (track, 1.9);
+        expect (ov2.isValid());
+        expectWithinAbsoluteError (ov2.end - ov2.start, 0.5, 1.0e-9);       // overlap preserved
+
+        beginTest ("rollBoundary clamps where the right clip's source starts");
+        const double back = clipops::rollBoundary (s, a, b, -2.0);          // offset is 0.25 s worth
+        expectWithinAbsoluteError (back, -0.25, 1.0e-9);
+        expectWithinAbsoluteError ((double) b[id::offset], 0.0, 1.0e-6);
+
+        beginTest ("rollBoundary undoes in one step");
+        const double beforeLen = a[id::length];
+        clipops::rollBoundary (s, a, b, 0.1);
+        s.undo.undo();
+        expectWithinAbsoluteError ((double) a[id::length], beforeLen, 1.0e-12);
+
+        beginTest ("resizeOverlap grows symmetrically about the centre");
+        SessionModel s3;
+        auto tr3 = s3.addTrack ("audio", "T");
+        auto a3 = addTestClip (s3, tr3, 0.0, 2.0);
+        auto b3 = addTestClip (s3, tr3, 1.5, 2.0);
+        b3.setProperty (id::offset, 48000.0, nullptr);          // room to reveal earlier source
+        const double got = clipops::resizeOverlap (s3, a3, b3, 1.0);   // centre 1.75
+        expectWithinAbsoluteError (got, 1.0, 1.0e-12);
+        expectWithinAbsoluteError ((double) a3[id::length], 2.25, 1.0e-9);  // ends at 2.25
+        expectWithinAbsoluteError ((double) b3[id::start], 1.25, 1.0e-9);
+        expectWithinAbsoluteError ((double) b3[id::length], 2.25, 1.0e-9);  // far end fixed at 3.5
+        expectWithinAbsoluteError ((double) b3[id::offset], 36000.0, 1.0);  // revealed 0.25 s
+
+        beginTest ("resizeOverlap to zero butts the clips");
+        const double zero = clipops::resizeOverlap (s3, a3, b3, 0.0);
+        expectWithinAbsoluteError (zero, 0.0, 1.0e-12);
+        expectWithinAbsoluteError ((double) a3[id::start] + (double) a3[id::length],
+                                   (double) b3[id::start], 1.0e-9);
+    }
+};
+
+// =========================================================================== chaos automation
+
+struct ChaosAutomationTests : juce::UnitTest
+{
+    ChaosAutomationTests() : UnitTest ("ChaosAutomation") {}
+
+    static ValueTree makeLane (SessionModel& s, ValueTree track)
+    {
+        ValueTree lane (id::LANE);
+        lane.setProperty (id::param, "strip:gain", nullptr);
+        lane.setProperty (id::name, "Volume", nullptr);
+        lane.setProperty (id::mode, 1, nullptr);
+        SessionModel::autoOf (track).appendChild (lane, nullptr);
+        return lane;
+    }
+
+    static std::vector<std::pair<double, double>> points (const ValueTree& lane)
+    {
+        std::vector<std::pair<double, double>> out;
+        for (const auto& p : lane)
+            if (p.hasType (id::PT))
+                out.emplace_back ((double) p[id::t], (double) p[id::v]);
+        return out;
+    }
+
+    void runTest() override
+    {
+        SessionModel s;
+        TempoMap map (s.tempoMap(), 48000.0);
+        auto track = s.addTrack ("audio", "T");
+
+        for (auto kind : { autogen::Gen::lorenz, autogen::Gen::drunk, autogen::Gen::ratchet })
+        {
+            beginTest ("generator " + String ((int) kind) + " fills the region, in range");
+            auto lane = makeLane (s, track);
+            const int n = autogen::generate (s, map, lane, kind, 0.0, 8.0, 1234);
+            expect (n > 8, "writes a real curve");
+            expectEquals (n, (int) points (lane).size());
+            bool inRange = true, inRegion = true;
+            for (const auto& [t, v] : points (lane))
+            {
+                inRange = inRange && v >= 0.0 && v <= 1.0;
+                inRegion = inRegion && t >= -1.0e-9 && t <= 8.0 + 1.0e-9;
+            }
+            expect (inRange, "values stay 0..1");
+            expect (inRegion, "points stay inside the region");
+        }
+
+        beginTest ("deterministic per seed, distinct across seeds");
+        auto laneA = makeLane (s, track);
+        auto laneB = makeLane (s, track);
+        auto laneC = makeLane (s, track);
+        autogen::generate (s, map, laneA, autogen::Gen::drunk, 0.0, 8.0, 7);
+        autogen::generate (s, map, laneB, autogen::Gen::drunk, 0.0, 8.0, 7);
+        autogen::generate (s, map, laneC, autogen::Gen::drunk, 0.0, 8.0, 8);
+        expect (points (laneA) == points (laneB), "same seed, same curve");
+        expect (points (laneA) != points (laneC), "new seed, new curve");
+
+        beginTest ("regenerating replaces only the region");
+        auto lane2 = makeLane (s, track);
+        ValueTree outside (id::PT);
+        outside.setProperty (id::t, 20.0, nullptr);
+        outside.setProperty (id::v, 0.5, nullptr);
+        lane2.appendChild (outside, nullptr);
+        ValueTree inside (id::PT);
+        inside.setProperty (id::t, 4.0, nullptr);
+        inside.setProperty (id::v, 0.5, nullptr);
+        lane2.appendChild (inside, nullptr);
+        autogen::generate (s, map, lane2, autogen::Gen::lorenz, 0.0, 8.0, 99);
+        bool keptOutside = false, keptInside = false;
+        for (const auto& [t, v] : points (lane2))
+        {
+            if (std::abs (t - 20.0) < 1.0e-9 && std::abs (v - 0.5) < 1.0e-9) keptOutside = true;
+            if (std::abs (t - 4.0) < 1.0e-9 && std::abs (v - 0.5) < 1.0e-9)  keptInside = true;
+        }
+        expect (keptOutside, "point outside the region survives");
+        expect (! keptInside, "point inside the region is replaced");
+
+        beginTest ("ratchets decay within each burst");
+        auto lane3 = makeLane (s, track);
+        autogen::generate (s, map, lane3, autogen::Gen::ratchet, 0.0, 2.0, 5);
+        auto pts = points (lane3);
+        std::sort (pts.begin(), pts.end());
+        // peaks are every other point; within beat 0 they must not rise
+        double lastPeak = 2.0;
+        bool decays = true;
+        for (const auto& [t, v] : pts)
+        {
+            if (t >= map.beatsToSeconds (1.0) - 1.0e-9) break;
+            if (v > 0.2)                                   // a hit, not a tail
+            {
+                decays = decays && v <= lastPeak + 1.0e-9;
+                lastPeak = v;
+            }
+        }
+        expect (decays, "burst amplitude only falls");
+
+        beginTest ("generate undoes in one step");
+        auto lane4 = makeLane (s, track);
+        const int before = (int) points (lane4).size();
+        autogen::generate (s, map, lane4, autogen::Gen::drunk, 0.0, 4.0, 3);
+        expect ((int) points (lane4).size() > before);
+        s.undo.undo();
+        expectEquals ((int) points (lane4).size(), before);
+    }
+};
+
+// =========================================================================== tap tempo
+
+struct TapTempoTests : juce::UnitTest
+{
+    TapTempoTests() : UnitTest ("TapTempo") {}
+    void runTest() override
+    {
+        beginTest ("two taps make a tempo");
+        TapTempo tt;
+        expectEquals (tt.tap (0.0), 0.0);                       // first tap: no estimate yet
+        expectWithinAbsoluteError (tt.tap (500.0), 120.0, 1.0e-9);
+
+        beginTest ("the phrase is averaged");
+        expectWithinAbsoluteError (tt.tap (980.0), 60000.0 / 490.0, 1.0e-9);
+        expectWithinAbsoluteError (tt.tap (1500.0), 120.0, 1.0e-9);
+
+        beginTest ("a long gap starts a new phrase");
+        expectEquals (tt.tap (10000.0), 0.0);                   // > 2.5 s later: reset
+        expectWithinAbsoluteError (tt.tap (10400.0), 150.0, 1.0e-9);
+
+        beginTest ("frantic tapping clamps sane");
+        TapTempo fast;
+        fast.tap (0.0);
+        expectWithinAbsoluteError (fast.tap (10.0), 999.0, 1.0e-9);
+
+        beginTest ("applyTapTempo updates the governing event");
+        SessionModel s;
+        s.undo.beginNewTransaction ("tap tempo");
+        applyTapTempo (s.tempoMap(), &s.undo, 0.0, 140.0);
+        auto ev0 = s.tempoMap().getChildWithName (id::TEMPO);
+        expectWithinAbsoluteError ((double) ev0[id::bpm], 140.0, 1.0e-12);
+
+        ValueTree late (id::TEMPO);
+        late.setProperty (id::beat, 8.0, nullptr);
+        late.setProperty (id::bpm, 60.0, nullptr);
+        s.tempoMap().appendChild (late, nullptr);
+        applyTapTempo (s.tempoMap(), &s.undo, 10.0, 90.0);      // playhead past beat 8
+        expectWithinAbsoluteError ((double) late[id::bpm], 90.0, 1.0e-12);
+        expectWithinAbsoluteError ((double) ev0[id::bpm], 140.0, 1.0e-12);   // beat-0 untouched
+
+        beginTest ("applyTapTempo seeds an implicit map");
+        ValueTree bare (id::TEMPOMAP);
+        applyTapTempo (bare, nullptr, 4.0, 100.0);
+        auto seeded = bare.getChildWithName (id::TEMPO);
+        expect (seeded.isValid());
+        expectWithinAbsoluteError ((double) seeded[id::beat], 0.0, 1.0e-12);
+        expectWithinAbsoluteError ((double) seeded[id::bpm], 100.0, 1.0e-12);
+
+        beginTest ("tap writes are undoable");
+        SessionModel s2;
+        s2.undo.beginNewTransaction ("tap tempo");
+        applyTapTempo (s2.tempoMap(), &s2.undo, 0.0, 180.0);
+        auto ev2 = s2.tempoMap().getChildWithName (id::TEMPO);
+        expectWithinAbsoluteError ((double) ev2[id::bpm], 180.0, 1.0e-12);
+        s2.undo.undo();
+        expectWithinAbsoluteError ((double) ev2[id::bpm], 120.0, 1.0e-12);
+    }
+};
+
+// =========================================================================== tempo ramps
+
+struct TempoRampTests : juce::UnitTest
+{
+    TempoRampTests() : UnitTest ("TempoRamps") {}
+
+    static ValueTree tempoEvent (double beat, double bpm, bool ramp)
+    {
+        ValueTree ev (id::TEMPO);
+        ev.setProperty (id::beat, beat, nullptr);
+        ev.setProperty (id::bpm, bpm, nullptr);
+        if (ramp) ev.setProperty (id::ramp, true, nullptr);
+        return ev;
+    }
+
+    void runTest() override
+    {
+        beginTest ("ramped segment follows the log law");
+        SessionModel s;                                          // default: 120 at beat 0
+        s.tempoMap().getChildWithName (id::TEMPO).setProperty (id::ramp, true, nullptr);
+        s.tempoMap().appendChild (tempoEvent (8.0, 240.0, false), nullptr);
+        TempoMap map (s.tempoMap(), 48000.0);
+        // slope 15 bpm/beat: t(8) = 60/15 * ln(240/120) = 4 ln 2
+        expectWithinAbsoluteError (map.beatsToSeconds (8.0), 4.0 * std::log (2.0), 1.0e-9);
+        expect (map.beatsToSeconds (8.0) < 4.0 && map.beatsToSeconds (8.0) > 2.0,
+                "between the constant-tempo extremes");
+
+        beginTest ("beatsToSeconds and secondsToBeats stay exact inverses");
+        for (const double b : { 0.0, 0.5, 1.0, 3.7, 7.99, 8.0, 8.5, 12.0, 64.0 })
+            expectWithinAbsoluteError (map.secondsToBeats (map.beatsToSeconds (b)), b, 1.0e-9);
+        for (const double t : { 0.0, 0.1, 1.0, 2.0, 2.7, 3.0, 10.0 })
+            expectWithinAbsoluteError (map.beatsToSeconds (map.secondsToBeats (t)), t, 1.0e-9);
+
+        beginTest ("bpm interpolates linearly across the ramp");
+        expectWithinAbsoluteError (map.bpmAtBeat (0.0), 120.0, 1.0e-9);
+        expectWithinAbsoluteError (map.bpmAtBeat (4.0), 180.0, 1.0e-9);
+        expectWithinAbsoluteError (map.bpmAtBeat (8.0), 240.0, 1.0e-9);
+        expectWithinAbsoluteError (map.bpmAtBeat (100.0), 240.0, 1.0e-9);
+
+        beginTest ("time keeps accumulating after the ramp");
+        // beats 8..12 at constant 240: one more second
+        expectWithinAbsoluteError (map.beatsToSeconds (12.0), 4.0 * std::log (2.0) + 1.0, 1.0e-9);
+
+        beginTest ("without the flag the old constant behaviour holds");
+        SessionModel s2;
+        s2.tempoMap().appendChild (tempoEvent (8.0, 240.0, false), nullptr);
+        TempoMap flat (s2.tempoMap(), 48000.0);
+        expectWithinAbsoluteError (flat.beatsToSeconds (8.0), 4.0, 1.0e-9);
+        expectWithinAbsoluteError (flat.bpmAtBeat (4.0), 120.0, 1.0e-9);
+
+        beginTest ("a ramp between equal bpms degrades to constant");
+        SessionModel s3;
+        s3.tempoMap().getChildWithName (id::TEMPO).setProperty (id::ramp, true, nullptr);
+        s3.tempoMap().appendChild (tempoEvent (8.0, 120.0, false), nullptr);
+        TempoMap same (s3.tempoMap(), 48000.0);
+        expectWithinAbsoluteError (same.beatsToSeconds (4.0), 2.0, 1.0e-9);
+        expectWithinAbsoluteError (same.secondsToBeats (2.0), 4.0, 1.0e-9);
+
+        beginTest ("a ramp on the last event is inert");
+        SessionModel s4;
+        s4.tempoMap().getChildWithName (id::TEMPO).setProperty (id::ramp, true, nullptr);
+        TempoMap lone (s4.tempoMap(), 48000.0);
+        expectWithinAbsoluteError (lone.beatsToSeconds (4.0), 2.0, 1.0e-9);
+        expectWithinAbsoluteError (lone.bpmAtBeat (16.0), 120.0, 1.0e-9);
+
+        beginTest ("decelerando ramps too");
+        SessionModel s5;
+        s5.tempoMap().getChildWithName (id::TEMPO).setProperty (id::ramp, true, nullptr);
+        s5.tempoMap().appendChild (tempoEvent (4.0, 60.0, false), nullptr);
+        TempoMap slow (s5.tempoMap(), 48000.0);
+        // slope -15: t(4) = 60/-15 * ln(60/120) = 4 ln 2
+        expectWithinAbsoluteError (slow.beatsToSeconds (4.0), 4.0 * std::log (2.0), 1.0e-9);
+        for (const double b : { 1.0, 2.0, 3.0, 4.0, 6.0 })
+            expectWithinAbsoluteError (slow.secondsToBeats (slow.beatsToSeconds (b)), b, 1.0e-9);
+    }
+};
+
 // ===========================================================================
 
 static TempoMapTests tempoMapTests;
@@ -688,6 +1290,13 @@ static PatcherTests patcherTests;
 static AnalysisTests analysisTests;
 static UpdaterTests updaterTests;
 static StretchTests stretchTests;
+static ClipLoopSlipTests clipLoopSlipTests;
+static LoopedRenderTests loopedRenderTests;
+static MidiLoopExpandTests midiLoopExpandTests;
+static CrossfadeHandleTests crossfadeHandleTests;
+static ChaosAutomationTests chaosAutomationTests;
+static TapTempoTests tapTempoTests;
+static TempoRampTests tempoRampTests;
 
 int main()
 {

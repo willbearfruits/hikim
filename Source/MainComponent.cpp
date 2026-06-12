@@ -181,7 +181,8 @@ void MainComponent::HelpOverlay::paint (juce::Graphics& g)
         "Double-click an Inst track: draws you a loop\n"
         "Space / K  play-stop      R  record\n"
         "J / L  jump a bar back / forward (Shift = 4 bars)\n"
-        "Return  back to start      Shift+L  loop on-off\n"
+        ", / .  nudge playhead a beat (Shift = a bar)\n"
+        "T  tap tempo      Return  back to start      Shift+L  loop on-off\n"
         "\n"
         "EDITING\n"
         "Tools 1/2/3: arrow = move, razor = split, X = delete\n"
@@ -601,6 +602,35 @@ bool MainComponent::keyPressed (const juce::KeyPress& k, juce::Component* origin
     }
     if (kc == juce::KeyPress::leftKey)  { timeline->nudgeSelected (-1, k.getModifiers().isShiftDown()); return true; }
     if (kc == juce::KeyPress::rightKey) { timeline->nudgeSelected (1, k.getModifiers().isShiftDown()); return true; }
+
+    // , / . nudge the playhead by a beat (Shift = a bar); finer than J/L
+    {
+        const juce::juce_wchar tc = k.getTextCharacter();
+        const bool back = kc == ',' || tc == ',' || tc == '<';
+        const bool fwd  = kc == '.' || tc == '.' || tc == '>';
+        if (back || fwd)
+        {
+            auto map = engine->getTempoMap();
+            const double b = map->samplesToBeats (engine->getPositionSamples());
+            const double step = (k.getModifiers().isShiftDown() || tc == '<' || tc == '>')
+                                    ? map->beatsPerBarAt (b) : 1.0;
+            engine->seekSeconds (map->beatsToSeconds (juce::jmax (0.0, back ? b - step : b + step)));
+            return true;
+        }
+    }
+    if (is ('T'))                           // tap tempo: writes the governing tempo event
+    {
+        const double bpm = tapTempo.tap (juce::Time::getMillisecondCounterHiRes());
+        if (bpm > 0.0)
+        {
+            auto map = engine->getTempoMap();
+            if (session.undo.getCurrentTransactionName() != "tap tempo")
+                session.undo.beginNewTransaction ("tap tempo");
+            applyTapTempo (session.tempoMap(), &session.undo,
+                           map->samplesToBeats (engine->getPositionSamples()), bpm);
+        }
+        return true;
+    }
     if (kc == juce::KeyPress::returnKey) { engine->seekSeconds (0.0); return true; }
     if (is ('M'))
     {

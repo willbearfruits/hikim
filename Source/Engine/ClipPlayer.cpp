@@ -122,66 +122,7 @@ void ClipPlayerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
 void ClipPlayerProcessor::renderClip (const AudioClipRT& c, juce::AudioBuffer<float>& out,
                                       juce::int64 blockStart, int n)
 {
-    const juce::int64 s = juce::jmax (blockStart, c.start);
-    const juce::int64 e = juce::jmin (blockStart + (juce::int64) n, c.start + c.length);
-    if (s >= e || c.reader == nullptr)
-        return;
-
-    int outOff = (int) (s - blockStart);
-    juce::int64 clipPos = s - c.start;                       // engine samples into the clip
-    int count = (int) (e - s);
-    double srcPos = c.offset + (double) clipPos * c.ratio;   // file samples
-
-    const int tempCap = fileTemp.getNumSamples();
-    float* tempPtrs[2] = { fileTemp.getWritePointer (0), fileTemp.getWritePointer (1) };
-    const int outChans = juce::jmin (2, out.getNumChannels());
-
-    while (count > 0)
-    {
-        int chunk = juce::jmin (count, 512);
-        // keep the source span inside the temp buffer
-        while (chunk > 1 && (int) (chunk * c.ratio) + 4 > tempCap)
-            chunk /= 2;
-
-        const auto readStart = (juce::int64) srcPos;
-        int readLen = (int) ((juce::int64) (srcPos + chunk * c.ratio) - readStart) + 3;
-        readLen = juce::jmin (readLen, tempCap);
-
-        if (readStart >= c.fileLength)
-            return;
-
-        c.reader->read (tempPtrs, 2, readStart, readLen);
-        if (c.numFileChannels < 2)
-            fileTemp.copyFrom (1, 0, fileTemp, 0, 0, readLen);
-
-        for (int i = 0; i < chunk; ++i)
-        {
-            const double sp = srcPos + i * c.ratio - (double) readStart;
-            const int i0 = juce::jlimit (0, readLen - 2, (int) sp);
-            const float frac = (float) (sp - i0);
-
-            float fade = 1.0f;
-            const juce::int64 ip = clipPos + i;
-            if (c.fadeIn > 0 && ip < c.fadeIn)                       fade *= (float) ip / (float) c.fadeIn;
-            if (c.fadeOut > 0 && c.length - ip < c.fadeOut)          fade *= (float) (c.length - ip) / (float) c.fadeOut;
-            // comp crossfades: equal-power so overlapping takes sum at unity
-            if (c.xfadeIn > 0 && ip < c.xfadeIn)                     fade *= std::sqrt ((float) ip / (float) c.xfadeIn);
-            if (c.xfadeOut > 0 && c.length - ip < c.xfadeOut)        fade *= std::sqrt ((float) (c.length - ip) / (float) c.xfadeOut);
-            const float g = c.gain * fade;
-
-            for (int ch = 0; ch < outChans; ++ch)
-            {
-                const float* src = fileTemp.getReadPointer (ch);
-                const float v = src[i0] + frac * (src[i0 + 1] - src[i0]);
-                out.addSample (ch, outOff + i, v * g);
-            }
-        }
-
-        srcPos += chunk * c.ratio;
-        clipPos += chunk;
-        outOff += chunk;
-        count -= chunk;
-    }
+    renderClipSpan (c, out, blockStart, n, fileTemp);
 }
 
 } // namespace dg

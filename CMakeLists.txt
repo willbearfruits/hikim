@@ -44,6 +44,7 @@ target_sources(dawglitch PRIVATE
     Source/MainComponent.cpp
     Source/Model/Session.cpp
     Source/Model/ClipOps.cpp
+    Source/Model/AutoGen.cpp
     Source/Engine/TempoMap.cpp
     Source/Engine/Processors.cpp
     Source/Engine/ClipPlayer.cpp
@@ -154,6 +155,7 @@ target_sources(ruin_tests PRIVATE
     Tests/Tests.cpp
     Source/Model/Session.cpp
     Source/Model/ClipOps.cpp
+    Source/Model/AutoGen.cpp
     Source/Engine/TempoMap.cpp
     Source/Engine/Processors.cpp
     Source/Engine/StretchCache.cpp

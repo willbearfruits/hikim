@@ -94,6 +94,7 @@ private:
     std::map<String, std::unique_ptr<FloatingWindow>> editorWindows;   // by insert uid
 
     juce::TooltipWindow tooltips { nullptr, 600 };
+    TapTempo tapTempo;                      // T key feeds it; writes the tempo event
 
     // dismissable cheatsheet for newcomers (? button / F1)
     struct HelpOverlay : juce::Component

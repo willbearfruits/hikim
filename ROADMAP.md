@@ -20,6 +20,14 @@ sentimental side — or the machinery both stand on.
   cabled to any parameter in the session (the mod matrix from "the big four")
 - SESSION view (Phase A of the Live layer): launch grid with quantized clip/scene
   launching, synced looping slots, Tab to flip views
+- Clip loop + slip (content repeats to fill the clip; ctrl-drag slides it inside;
+  MIDI clips loop too - notes repeat over the clip length)
+- Crossfade handles (the comp overlap draws its equal-power X; drag rolls the
+  boundary, alt-drag resizes the fade)
+- Chaos automation ("generate" on automation lanes: Lorenz attractor, drunk
+  walk, decaying ratchets)
+- Tap tempo (T) + playhead nudge keys (, / . by a beat, Shift = a bar)
+- Tempo ramps (linear BPM glides between tempo events, exact-inverse time math)
 
 ## The Live/Max build-out (owner-approved phases)
 
@@ -42,16 +50,10 @@ sentimental side — or the machinery both stand on.
 
 ## Next (small, soon)
 
-- **Clip loop + slip** — loop clip content to fill its length; drag content inside the
-  clip without moving its edges. The missing half of break-editing.
-- **Crossfade handles** — comping crossfades exist (overlaps auto-crossfade equal-power);
-  draw them on the clips and make the overlap draggable.
 - **Count-in / pre-roll** — two bars of click before punch-in. Tracking comfort.
-- **Tempo ramps** — linear BPM glides between tempo events (accelerando into the wall).
-- **Tap tempo** + playhead nudge keys.
 - **Track freeze / bounce-in-place** — commit a corrupted track to audio with one key.
   Doubles as a *gesture*: freezing TEETH output makes destruction permanent.
-- **MIDI clip looping** and a drum-lane mode in the piano roll.
+- **Drum-lane mode** in the piano roll (MIDI clip looping shipped with clip loop+slip).
 - **A/B mixer snapshots** — flip the whole console between two states.
 
 ## The big four (defining features)
@@ -74,8 +76,6 @@ sentimental side — or the machinery both stand on.
 
 - **Wear** — opt-in: every bounce pass adds a breath of tape age; a project setting
   where the session accumulates patina each save. The file remembers being touched.
-- **Chaos automation** — "generate" menu on automation lanes: attractor curves,
-  drunk walks, decaying ratchets. Automation drawn by the same math as the canvas pieces.
 - **ASCII scope** — a character-only oscilloscope/spectrogram window (every visible
   cell a typed character). The one place HIKIM meets characterglitch on screen.
 - **OSC bridge** — OSC in/out mapped to params/macros/transport; sclang as an external

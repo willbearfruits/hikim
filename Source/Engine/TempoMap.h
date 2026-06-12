@@ -10,8 +10,8 @@ namespace dg
 class TempoMap
 {
 public:
-    struct TempoEvent { double beat;  double bpm; };           // beat = quarter notes from 0
-    struct SigEvent   { double beat;  int num; int den; };
+    struct TempoEvent { double beat;  double bpm; bool ramp = false; };   // beat = quarter notes from 0;
+    struct SigEvent   { double beat;  int num; int den; };                // ramp glides to the next event
 
     TempoMap (double sampleRate = 48000.0);
     TempoMap (const ValueTree& tempoMapTree, double sampleRate);
@@ -45,5 +45,23 @@ private:
     std::vector<SigEvent>   sigs;       // sorted by beat, first at beat 0
     std::vector<double> tempoSecondsAnchors;  // seconds position of each tempo event
 };
+
+// Tap tempo accumulator: feed tap timestamps (ms), read the running bpm.
+// A gap longer than 2.5 s starts a new phrase; the last 8 intervals are
+// averaged. Returns 0 until two taps have landed.
+class TapTempo
+{
+public:
+    double tap (double nowMs);
+    void reset() noexcept { times.clear(); }
+
+private:
+    std::vector<double> times;
+};
+
+// Writes a tapped bpm into a TEMPOMAP subtree: updates the TEMPO event
+// governing `beat` (the last at or before it), inserting a beat-0 event
+// when the map is implicit. Undoable through the caller's UndoManager.
+void applyTapTempo (ValueTree tempoMapTree, juce::UndoManager*, double beat, double bpm);
 
 } // namespace dg

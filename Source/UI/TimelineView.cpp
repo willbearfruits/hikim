@@ -1,4 +1,5 @@
 #include "TimelineView.h"
+#include "../Model/AutoGen.h"
 
 namespace dg
 {
@@ -48,13 +49,14 @@ public:
             beat = bb.barStartBeat + bb.num * 4.0 / bb.den;
         }
 
-        // tempo / timesig events
+        // tempo / timesig events (an arrow marks a ramp to the next event)
         g.setFont (juce::Font (juce::FontOptions (9.0f)));
         for (const auto& ev : map->getTempos())
         {
             const int x = (int) tv.timeToX (map->beatsToSeconds (ev.beat)) + xOff;
             g.setColour (col::accent2);
-            g.drawText (String (ev.bpm, 1), x + 2, 1, 50, 10, juce::Justification::left);
+            g.drawText (String (ev.bpm, 1) + (ev.ramp ? juce::String::fromUTF8 ("\xe2\x86\x97") : String()),
+                        x + 2, 1, 56, 10, juce::Justification::left);
         }
 
         // markers
@@ -115,6 +117,7 @@ public:
         m.addItem (3, "Clear loop");
         m.addSeparator();
         m.addItem (4, "Insert tempo change here...");
+        m.addItem (7, "Ramp tempo to next event", true, rampAtSec (sec));
         m.addItem (5, "Insert time signature here...");
         m.addSeparator();
         m.addItem (6, "Delete nearest marker");
@@ -128,6 +131,7 @@ public:
             {
                 auto* w = new juce::AlertWindow ("Tempo change", "BPM at " + map->formatBarsBeats (tv.engine.secToSamples (sec)), juce::MessageBoxIconType::NoIcon);
                 w->addTextEditor ("bpm", String (map->bpmAtBeat (map->secondsToBeats (sec)), 1));
+                w->addComboBox ("ramp", { "hold until next", "ramp to next" }, "then");
                 w->addButton ("OK", 1); w->addButton ("Cancel", 0);
                 w->enterModalState (true, juce::ModalCallbackFunction::create ([this, sec, w] (int res)
                 {
@@ -137,9 +141,20 @@ public:
                         ValueTree ev (id::TEMPO);
                         ev.setProperty (id::beat, std::round (map2->secondsToBeats (sec)), nullptr);
                         ev.setProperty (id::bpm, juce::jlimit (10.0, 999.0, w->getTextEditorContents ("bpm").getDoubleValue()), nullptr);
+                        if (w->getComboBoxComponent ("ramp")->getSelectedItemIndex() == 1)
+                            ev.setProperty (id::ramp, true, nullptr);
                         tv.session.tempoMap().appendChild (ev, &tv.session.undo);
                     }
                 }), true);
+            }
+            else if (r == 7)
+            {
+                auto evT = governingTempoEvent (sec);
+                if (evT.isValid())
+                {
+                    tv.session.undo.beginNewTransaction ("tempo ramp");
+                    evT.setProperty (id::ramp, ! (bool) evT.getProperty (id::ramp, false), &tv.session.undo);
+                }
             }
             else if (r == 5)
             {
@@ -181,6 +196,27 @@ public:
         });
     }
 
+    // the TEMPO tree child governing this time (last at or before it)
+    ValueTree governingTempoEvent (double sec) const
+    {
+        const double beat = tv.engine.getTempoMap()->secondsToBeats (sec);
+        ValueTree best;
+        double bestBeat = -1.0;
+        for (auto c : tv.session.tempoMap())
+            if (c.hasType (id::TEMPO))
+            {
+                const double b = c[id::beat];
+                if (b <= beat + 1.0e-9 && b > bestBeat) { bestBeat = b; best = c; }
+            }
+        return best;
+    }
+
+    bool rampAtSec (double sec) const
+    {
+        auto ev = governingTempoEvent (sec);
+        return ev.isValid() && (bool) ev.getProperty (id::ramp, false);
+    }
+
 private:
     TimelineView& tv;
     bool draggingLoop = false;
@@ -220,15 +256,31 @@ public:
         g.drawRoundedRectangle (r, 3.0f, selected ? 1.8f : 1.0f);
 
         const double lenSec = clip[id::length];
+        const bool looped = (bool) clip.getProperty (id::loop, false);
         if (thumb != nullptr && thumb->getTotalLength() > 0)
         {
             g.setColour (base.brighter (0.6f));
             const double fileSR = clip.getProperty (id::fileSR, 48000.0);
             const double stretch = clip.getProperty (id::stretch, 1.0);
             const double srcStart = (double) clip[id::offset] / fileSR;
-            const double srcLen = lenSec / stretch * 1.0;   // varispeed keeps file-time = len/stretch
-            thumb->drawChannels (g, getLocalBounds().reduced (2, 12).withTrimmedTop (2),
-                                 srcStart, srcStart + srcLen, 0.9f);
+            const auto waveArea = getLocalBounds().reduced (2, 12).withTrimmedTop (2);
+            const double passSec = (double) clip.getProperty (id::loopLen, 0.0);
+            if (looped && passSec > 1.0e-4 && passSec < lenSec - 1.0e-6)
+            {
+                for (int k = 0; k * passSec < lenSec && k < 512; ++k)    // content repeats per pass
+                {
+                    const double p0 = k * passSec;
+                    const double thisPass = juce::jmin (passSec, lenSec - p0);
+                    juce::Rectangle<int> r2 ((int) (p0 * tv.pps) + 1, waveArea.getY(),
+                                             juce::jmax (1, (int) (thisPass * tv.pps) - 1), waveArea.getHeight());
+                    thumb->drawChannels (g, r2, srcStart, srcStart + thisPass / stretch, 0.9f);
+                }
+            }
+            else
+            {
+                const double srcLen = lenSec / stretch * 1.0;   // varispeed keeps file-time = len/stretch
+                thumb->drawChannels (g, waveArea, srcStart, srcStart + srcLen, 0.9f);
+            }
         }
         else if (isMidi)
         {
@@ -236,13 +288,62 @@ public:
             auto notes = clip.getChildWithName (id::NOTES);
             auto map = tv.engine.getTempoMap();
             const double clipStartBeat = map->secondsToBeats ((double) clip[id::start]);
+            const double loopBeats = (double) clip.getProperty (id::loopBeats, 0.0);
+            const bool looping = looped && loopBeats > 1.0e-6;
+            const double clipLenBeats = map->secondsToBeats ((double) clip[id::start] + lenSec) - clipStartBeat;
+            const int passes = looping ? juce::jlimit (1, 512, (int) std::ceil (clipLenBeats / loopBeats)) : 1;
             for (const auto& n : notes)
             {
-                const double bs = map->beatsToSeconds (clipStartBeat + (double) n[id::beat]) - (double) clip[id::start];
-                const double be = map->beatsToSeconds (clipStartBeat + (double) n[id::beat] + (double) n[id::len]) - (double) clip[id::start];
-                const float y = (float) getHeight() * (1.0f - ((int) n[id::pitch] - 24) / 84.0f);
-                g.fillRect ((float) (bs * tv.pps), juce::jlimit (2.0f, getHeight() - 4.0f, y),
-                            juce::jmax (2.0f, (float) ((be - bs) * tv.pps)), 2.0f);
+                const double nb = (double) n[id::beat];
+                if (looping && nb >= loopBeats) continue;
+                for (int k = 0; k < passes; ++k)
+                {
+                    const double pb = nb + k * loopBeats;
+                    const double bs = map->beatsToSeconds (clipStartBeat + pb) - (double) clip[id::start];
+                    if (bs >= lenSec) break;
+                    const double be = map->beatsToSeconds (clipStartBeat + pb + (double) n[id::len]) - (double) clip[id::start];
+                    const float y = (float) getHeight() * (1.0f - ((int) n[id::pitch] - 24) / 84.0f);
+                    g.fillRect ((float) (bs * tv.pps), juce::jlimit (2.0f, getHeight() - 4.0f, y),
+                                juce::jmax (2.0f, (float) ((be - bs) * tv.pps)), 2.0f);
+                }
+            }
+        }
+
+        // loop pass boundaries: notch + faint seam at each content repeat
+        if (looped)
+        {
+            std::vector<double> seams;
+            if (isMidi)
+            {
+                const double loopBeats = (double) clip.getProperty (id::loopBeats, 0.0);
+                if (loopBeats > 1.0e-6)
+                {
+                    auto map = tv.engine.getTempoMap();
+                    const double clipStartBeat = map->secondsToBeats ((double) clip[id::start]);
+                    for (int k = 1; k < 512; ++k)
+                    {
+                        const double t = map->beatsToSeconds (clipStartBeat + k * loopBeats) - (double) clip[id::start];
+                        if (t >= lenSec - 1.0e-6) break;
+                        seams.push_back (t);
+                    }
+                }
+            }
+            else
+            {
+                const double passSec = (double) clip.getProperty (id::loopLen, 0.0);
+                if (passSec > 1.0e-4)
+                    for (int k = 1; k * passSec < lenSec - 1.0e-6 && k < 512; ++k)
+                        seams.push_back (k * passSec);
+            }
+            for (const double t : seams)
+            {
+                const float x = (float) (t * tv.pps);
+                g.setColour (base.brighter (0.8f).withAlpha (0.35f));
+                g.drawLine (x, 12.0f, x, (float) getHeight() - 1.0f);
+                g.setColour (base.brighter (0.9f));
+                juce::Path tri;
+                tri.addTriangle (x - 3.5f, 12.0f, x + 3.5f, 12.0f, x, 18.0f);
+                g.fillPath (tri);
             }
         }
 
@@ -263,13 +364,44 @@ public:
             g.fillPath (p);
         }
 
+        // comp crossfades: equal-power curve over each partial overlap, with
+        // a draggable boundary handle (drag rolls the edit; alt-drag resizes)
+        for (const auto& ov : clipops::overlapsOf (clip))
+        {
+            const double cS = (double) clip[id::start];
+            const float x0 = (float) ((ov.start - cS) * tv.pps);
+            const float x1 = (float) ((ov.end - cS) * tv.pps);
+            if (x1 - x0 < 1.0f) continue;
+            const float h = (float) getHeight();
+            const bool fadingOut = ov.left == clip;
+            juce::Path p;
+            for (int i = 0; i <= 16; ++i)
+            {
+                const float u = (float) i / 16.0f;
+                const float gain = fadingOut ? std::sqrt (1.0f - u) : std::sqrt (u);
+                const float x = x0 + u * (x1 - x0);
+                const float y = (1.0f - gain) * (h - 2.0f) + 1.0f;
+                if (i == 0) p.startNewSubPath (x, y); else p.lineTo (x, y);
+            }
+            g.setColour (col::accent2.withAlpha (0.85f));
+            g.strokePath (p, juce::PathStrokeType (1.3f));
+
+            const float hx = (x0 + x1) * 0.5f;
+            juce::Path d;
+            d.addQuadrilateral (hx, 2.0f, hx + 4.5f, 7.0f, hx, 12.0f, hx - 4.5f, 7.0f);
+            g.setColour (col::accent2);
+            g.fillPath (d);
+        }
+
         g.setColour (juce::Colours::white.withAlpha (0.85f));
         g.setFont (juce::Font (juce::FontOptions (10.0f)));
-        g.drawText (clip[id::name].toString() + (isTake ? "  [take " + clip[id::lane].toString() + "]" : ""),
+        g.drawText (clip[id::name].toString()
+                        + (looped ? juce::String::fromUTF8 ("  \xe2\x88\x9e") : String())
+                        + (isTake ? "  [take " + clip[id::lane].toString() + "]" : ""),
                     4, 1, getWidth() - 8, 11, juce::Justification::left);
     }
 
-    enum class Mode { none, move, trimL, trimR, fadeL, fadeR };
+    enum class Mode { none, move, trimL, trimR, fadeL, fadeR, slip, xfadeRoll, xfadeSize };
 
     void mouseDown (const juce::MouseEvent& e) override
     {
@@ -301,8 +433,18 @@ public:
         origStart = clip[id::start];
         origLen = clip[id::length];
         origOffset = clip[id::offset];
+        slipApplied = 0.0;
         const int w = getWidth();
-        if (e.y < 14 && e.x < juce::jmin (24, w / 3)) mode = Mode::fadeL;
+        xfade = clipops::overlapAt (track, tv.xToTime (getX() + e.x));
+        if (xfade.isValid() && e.y < 14
+            && std::abs ((double) e.x - ((xfade.start + xfade.end) * 0.5 - origStart) * tv.pps) <= 8.0)
+        {
+            mode = e.mods.isAltDown() ? Mode::xfadeSize : Mode::xfadeRoll;
+            xfadeApplied = 0.0;
+            origOverlap = xfade.end - xfade.start;
+        }
+        else if (e.mods.isCommandDown()) mode = Mode::slip; // ctrl/cmd-drag: slide content
+        else if (e.y < 14 && e.x < juce::jmin (24, w / 3)) mode = Mode::fadeL;
         else if (e.y < 14 && e.x > w - juce::jmin (24, w / 3)) mode = Mode::fadeR;
         else if (e.x < 7) mode = Mode::trimL;
         else if (e.x > w - 7) mode = Mode::trimR;
@@ -351,11 +493,37 @@ public:
             {
                 const double fileSR = clip.getProperty (id::fileSR, 48000.0);
                 const double stretch = clip.getProperty (id::stretch, 1.0);
-                clip.setProperty (id::offset, juce::jmax (0.0, origOffset + d * fileSR / stretch), &undo);
+                double dContent = d;
+                const double passSec = (double) clip.getProperty (id::loopLen, 0.0);
+                if ((bool) clip.getProperty (id::loop, false) && passSec > 1.0e-4)
+                {
+                    dContent = std::fmod (d, passSec);      // passes re-anchor at the new start
+                    if (dContent < 0) dContent += passSec;
+                }
+                clip.setProperty (id::offset, juce::jmax (0.0, origOffset + dContent * fileSR / stretch), &undo);
             }
         }
         else if (mode == Mode::trimR)
             clip.setProperty (id::length, juce::jmax (0.05, tv.snap (origStart + origLen + dx) - origStart), &undo);
+        else if (mode == Mode::slip)
+        {
+            clipops::slip (tv.session, *tv.engine.getTempoMap(), { clip[id::uid].toString() },
+                           dx - slipApplied, false);        // coalesces into this drag's transaction
+            slipApplied = dx;
+            repaint();
+        }
+        else if (mode == Mode::xfadeRoll)
+        {
+            xfadeApplied += clipops::rollBoundary (tv.session, xfade.left, xfade.right,
+                                                   dx - xfadeApplied, false);
+            getParentComponent()->repaint();
+        }
+        else if (mode == Mode::xfadeSize)
+        {
+            clipops::resizeOverlap (tv.session, xfade.left, xfade.right,
+                                    origOverlap + dx * 2.0, false);
+            getParentComponent()->repaint();
+        }
         else if (mode == Mode::fadeL)
             clip.setProperty (id::fadeIn, juce::jlimit (0.0, (double) clip[id::length], (double) e.x / tv.pps), &undo);
         else if (mode == Mode::fadeR)
@@ -404,6 +572,7 @@ public:
         m.addItem (2, "Duplicate");
         m.addItem (3, "Split at playhead");
         m.addItem (4, "Rename...");
+        m.addItem (12, "Loop content (ctrl-drag slips)", true, (bool) clip.getProperty (id::loop, false));
         if (clip[id::type].toString() == "audio")
         {
             m.addItem (5, "Clip gain...");
@@ -465,6 +634,22 @@ public:
                 c.setProperty (id::stretchMode,
                                (int) c.getProperty (id::stretchMode, 0) == 1 ? 0 : 1,
                                &view->session.undo);
+            else if (r == 12)
+            {
+                const bool on = ! (bool) c.getProperty (id::loop, false);
+                clipops::setLoop (view->session, *view->engine.getTempoMap(),
+                                  { c[id::uid].toString() }, on,
+                    [view] (const ValueTree& cc) -> double      // audio: seconds of source after the offset
+                    {
+                        if (cc[id::type].toString() != "audio") return 0.0;
+                        auto rd = view->engine.createAnyReader (File (cc[id::file].toString()));
+                        if (rd == nullptr || rd->sampleRate <= 0) return 0.0;
+                        const double fileSR = cc.getProperty (id::fileSR, rd->sampleRate);
+                        const double stretch = cc.getProperty (id::stretch, 1.0);
+                        return juce::jmax (0.0, (double) rd->lengthInSamples - (double) cc[id::offset])
+                               / fileSR * stretch;
+                    });
+            }
             else if (r == 7)
             {
                 const int myLane = c.getProperty (id::lane, 0);
@@ -503,6 +688,14 @@ public:
     {
         if (tv.ui.tool == Tool::razor)  { setMouseCursor (juce::MouseCursor::IBeamCursor); return; }
         if (tv.ui.tool == Tool::erase)  { setMouseCursor (juce::MouseCursor::CrosshairCursor); return; }
+        if (e.y < 14)
+        {
+            auto ovh = clipops::overlapAt (track, tv.xToTime (getX() + e.x));
+            if (ovh.isValid()
+                && std::abs ((double) e.x - ((ovh.start + ovh.end) * 0.5 - (double) clip[id::start]) * tv.pps) <= 8.0)
+            { setMouseCursor (juce::MouseCursor::LeftRightResizeCursor); return; }
+        }
+        if (e.mods.isCommandDown())     { setMouseCursor (juce::MouseCursor::DraggingHandCursor); return; }
         const int w = getWidth();
         if (e.x < 7 || e.x > w - 7)
             setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
@@ -519,6 +712,9 @@ private:
     TimelineView& tv;
     Mode mode = Mode::none;
     double origStart = 0, origLen = 0, origOffset = 0;
+    double slipApplied = 0.0;             // slip delta already written during this drag
+    clipops::Overlap xfade;               // overlap being dragged
+    double xfadeApplied = 0.0, origOverlap = 0.0;
     bool duplicated = false;
     std::unique_ptr<juce::AudioThumbnail> thumb;
 };
@@ -585,15 +781,44 @@ public:
         {
             juce::PopupMenu m;
             m.addItem (1, "Clear all points");
-            m.showMenuAsync ({}, [this] (int r)
+            juce::PopupMenu gen;                       // chaos automation: canvas math on a lane
+            gen.addItem (10, "Attractor curve (Lorenz)");
+            gen.addItem (11, "Drunk walk");
+            gen.addItem (12, "Decaying ratchets");
+            m.addSubMenu ("Generate (loop region, else song)", gen);
+
+            // capture the view pointer + lane tree, never `this`: the menu
+            // callback can outlive this comp (any rebuild deletes it)
+            auto* view = &tv;
+            ValueTree ln = lane;
+            m.showMenuAsync ({}, [view, ln] (int r) mutable
             {
                 if (r == 1)
                 {
-                    for (int i = lane.getNumChildren(); --i >= 0;)
-                        if (lane.getChild (i).hasType (id::PT))
-                            lane.removeChild (i, &tv.session.undo);
-                    repaint();
+                    view->session.undo.beginNewTransaction ("clear automation");
+                    for (int i = ln.getNumChildren(); --i >= 0;)
+                        if (ln.getChild (i).hasType (id::PT))
+                            ln.removeChild (i, &view->session.undo);
+                    return;
                 }
+                if (r < 10 || r > 12) return;
+
+                auto tr = view->session.transport();
+                double t0 = tr[id::loopStart], t1 = tr[id::loopEnd];
+                if (! (bool) tr[id::loopOn] || t1 <= t0 + 1.0e-3)
+                {
+                    t0 = 0.0;
+                    t1 = 0.0;
+                    for (const auto& t : view->session.tracks())
+                        for (const auto& c : t.getChildWithName (id::CLIPS))
+                            t1 = juce::jmax (t1, (double) c[id::start] + (double) c[id::length]);
+                    t1 = juce::jmax (t1, view->engine.getTempoMap()->beatsToSeconds (32.0));
+                }
+                const auto kind = r == 10 ? autogen::Gen::lorenz
+                                : r == 11 ? autogen::Gen::drunk
+                                          : autogen::Gen::ratchet;
+                autogen::generate (view->session, *view->engine.getTempoMap(), ln, kind,
+                                   t0, t1, juce::Random::getSystemRandom().nextInt64());
             });
             return;
         }
@@ -1333,7 +1558,8 @@ void TimelineView::dropSlotClip (const String& desc, juce::Point<int> canvasPos)
     c.setProperty (id::uid, SessionModel::newUID(), nullptr);
     c.setProperty (id::start, juce::jmax (0.0, snap (xToTime (canvasPos.x))), nullptr);
     c.setProperty (id::lane, 0, nullptr);
-    c.removeProperty (id::loopBeats, nullptr);
+    if (! (bool) c.getProperty (id::loop, false))       // content-looped clips keep their pass length
+        c.removeProperty (id::loopBeats, nullptr);
     SessionModel::clipsOf (target).appendChild (c, &session.undo);
 }
 
