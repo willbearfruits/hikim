@@ -220,15 +220,31 @@ public:
         g.drawRoundedRectangle (r, 3.0f, selected ? 1.8f : 1.0f);
 
         const double lenSec = clip[id::length];
+        const bool looped = (bool) clip.getProperty (id::loop, false);
         if (thumb != nullptr && thumb->getTotalLength() > 0)
         {
             g.setColour (base.brighter (0.6f));
             const double fileSR = clip.getProperty (id::fileSR, 48000.0);
             const double stretch = clip.getProperty (id::stretch, 1.0);
             const double srcStart = (double) clip[id::offset] / fileSR;
-            const double srcLen = lenSec / stretch * 1.0;   // varispeed keeps file-time = len/stretch
-            thumb->drawChannels (g, getLocalBounds().reduced (2, 12).withTrimmedTop (2),
-                                 srcStart, srcStart + srcLen, 0.9f);
+            const auto waveArea = getLocalBounds().reduced (2, 12).withTrimmedTop (2);
+            const double passSec = (double) clip.getProperty (id::loopLen, 0.0);
+            if (looped && passSec > 1.0e-4 && passSec < lenSec - 1.0e-6)
+            {
+                for (int k = 0; k * passSec < lenSec && k < 512; ++k)    // content repeats per pass
+                {
+                    const double p0 = k * passSec;
+                    const double thisPass = juce::jmin (passSec, lenSec - p0);
+                    juce::Rectangle<int> r2 ((int) (p0 * tv.pps) + 1, waveArea.getY(),
+                                             juce::jmax (1, (int) (thisPass * tv.pps) - 1), waveArea.getHeight());
+                    thumb->drawChannels (g, r2, srcStart, srcStart + thisPass / stretch, 0.9f);
+                }
+            }
+            else
+            {
+                const double srcLen = lenSec / stretch * 1.0;   // varispeed keeps file-time = len/stretch
+                thumb->drawChannels (g, waveArea, srcStart, srcStart + srcLen, 0.9f);
+            }
         }
         else if (isMidi)
         {
@@ -236,13 +252,62 @@ public:
             auto notes = clip.getChildWithName (id::NOTES);
             auto map = tv.engine.getTempoMap();
             const double clipStartBeat = map->secondsToBeats ((double) clip[id::start]);
+            const double loopBeats = (double) clip.getProperty (id::loopBeats, 0.0);
+            const bool looping = looped && loopBeats > 1.0e-6;
+            const double clipLenBeats = map->secondsToBeats ((double) clip[id::start] + lenSec) - clipStartBeat;
+            const int passes = looping ? juce::jlimit (1, 512, (int) std::ceil (clipLenBeats / loopBeats)) : 1;
             for (const auto& n : notes)
             {
-                const double bs = map->beatsToSeconds (clipStartBeat + (double) n[id::beat]) - (double) clip[id::start];
-                const double be = map->beatsToSeconds (clipStartBeat + (double) n[id::beat] + (double) n[id::len]) - (double) clip[id::start];
-                const float y = (float) getHeight() * (1.0f - ((int) n[id::pitch] - 24) / 84.0f);
-                g.fillRect ((float) (bs * tv.pps), juce::jlimit (2.0f, getHeight() - 4.0f, y),
-                            juce::jmax (2.0f, (float) ((be - bs) * tv.pps)), 2.0f);
+                const double nb = (double) n[id::beat];
+                if (looping && nb >= loopBeats) continue;
+                for (int k = 0; k < passes; ++k)
+                {
+                    const double pb = nb + k * loopBeats;
+                    const double bs = map->beatsToSeconds (clipStartBeat + pb) - (double) clip[id::start];
+                    if (bs >= lenSec) break;
+                    const double be = map->beatsToSeconds (clipStartBeat + pb + (double) n[id::len]) - (double) clip[id::start];
+                    const float y = (float) getHeight() * (1.0f - ((int) n[id::pitch] - 24) / 84.0f);
+                    g.fillRect ((float) (bs * tv.pps), juce::jlimit (2.0f, getHeight() - 4.0f, y),
+                                juce::jmax (2.0f, (float) ((be - bs) * tv.pps)), 2.0f);
+                }
+            }
+        }
+
+        // loop pass boundaries: notch + faint seam at each content repeat
+        if (looped)
+        {
+            std::vector<double> seams;
+            if (isMidi)
+            {
+                const double loopBeats = (double) clip.getProperty (id::loopBeats, 0.0);
+                if (loopBeats > 1.0e-6)
+                {
+                    auto map = tv.engine.getTempoMap();
+                    const double clipStartBeat = map->secondsToBeats ((double) clip[id::start]);
+                    for (int k = 1; k < 512; ++k)
+                    {
+                        const double t = map->beatsToSeconds (clipStartBeat + k * loopBeats) - (double) clip[id::start];
+                        if (t >= lenSec - 1.0e-6) break;
+                        seams.push_back (t);
+                    }
+                }
+            }
+            else
+            {
+                const double passSec = (double) clip.getProperty (id::loopLen, 0.0);
+                if (passSec > 1.0e-4)
+                    for (int k = 1; k * passSec < lenSec - 1.0e-6 && k < 512; ++k)
+                        seams.push_back (k * passSec);
+            }
+            for (const double t : seams)
+            {
+                const float x = (float) (t * tv.pps);
+                g.setColour (base.brighter (0.8f).withAlpha (0.35f));
+                g.drawLine (x, 12.0f, x, (float) getHeight() - 1.0f);
+                g.setColour (base.brighter (0.9f));
+                juce::Path tri;
+                tri.addTriangle (x - 3.5f, 12.0f, x + 3.5f, 12.0f, x, 18.0f);
+                g.fillPath (tri);
             }
         }
 
@@ -265,11 +330,13 @@ public:
 
         g.setColour (juce::Colours::white.withAlpha (0.85f));
         g.setFont (juce::Font (juce::FontOptions (10.0f)));
-        g.drawText (clip[id::name].toString() + (isTake ? "  [take " + clip[id::lane].toString() + "]" : ""),
+        g.drawText (clip[id::name].toString()
+                        + (looped ? juce::String::fromUTF8 ("  \xe2\x88\x9e") : String())
+                        + (isTake ? "  [take " + clip[id::lane].toString() + "]" : ""),
                     4, 1, getWidth() - 8, 11, juce::Justification::left);
     }
 
-    enum class Mode { none, move, trimL, trimR, fadeL, fadeR };
+    enum class Mode { none, move, trimL, trimR, fadeL, fadeR, slip };
 
     void mouseDown (const juce::MouseEvent& e) override
     {
@@ -301,8 +368,10 @@ public:
         origStart = clip[id::start];
         origLen = clip[id::length];
         origOffset = clip[id::offset];
+        slipApplied = 0.0;
         const int w = getWidth();
-        if (e.y < 14 && e.x < juce::jmin (24, w / 3)) mode = Mode::fadeL;
+        if (e.mods.isCommandDown()) mode = Mode::slip;      // ctrl/cmd-drag: slide content
+        else if (e.y < 14 && e.x < juce::jmin (24, w / 3)) mode = Mode::fadeL;
         else if (e.y < 14 && e.x > w - juce::jmin (24, w / 3)) mode = Mode::fadeR;
         else if (e.x < 7) mode = Mode::trimL;
         else if (e.x > w - 7) mode = Mode::trimR;
@@ -351,11 +420,26 @@ public:
             {
                 const double fileSR = clip.getProperty (id::fileSR, 48000.0);
                 const double stretch = clip.getProperty (id::stretch, 1.0);
-                clip.setProperty (id::offset, juce::jmax (0.0, origOffset + d * fileSR / stretch), &undo);
+                double dContent = d;
+                const double passSec = (double) clip.getProperty (id::loopLen, 0.0);
+                if ((bool) clip.getProperty (id::loop, false) && passSec > 1.0e-4)
+                {
+                    dContent = std::fmod (d, passSec);      // passes re-anchor at the new start
+                    if (dContent < 0) dContent += passSec;
+                }
+                clip.setProperty (id::offset, juce::jmax (0.0, origOffset + dContent * fileSR / stretch), &undo);
             }
         }
         else if (mode == Mode::trimR)
             clip.setProperty (id::length, juce::jmax (0.05, tv.snap (origStart + origLen + dx) - origStart), &undo);
+        else if (mode == Mode::slip)
+        {
+            const double total = tv.xToTime (e.getDistanceFromDragStartX());
+            clipops::slip (tv.session, *tv.engine.getTempoMap(), { clip[id::uid].toString() },
+                           total - slipApplied, false);     // coalesces into this drag's transaction
+            slipApplied = total;
+            repaint();
+        }
         else if (mode == Mode::fadeL)
             clip.setProperty (id::fadeIn, juce::jlimit (0.0, (double) clip[id::length], (double) e.x / tv.pps), &undo);
         else if (mode == Mode::fadeR)
@@ -404,6 +488,7 @@ public:
         m.addItem (2, "Duplicate");
         m.addItem (3, "Split at playhead");
         m.addItem (4, "Rename...");
+        m.addItem (12, "Loop content (ctrl-drag slips)", true, (bool) clip.getProperty (id::loop, false));
         if (clip[id::type].toString() == "audio")
         {
             m.addItem (5, "Clip gain...");
@@ -465,6 +550,22 @@ public:
                 c.setProperty (id::stretchMode,
                                (int) c.getProperty (id::stretchMode, 0) == 1 ? 0 : 1,
                                &view->session.undo);
+            else if (r == 12)
+            {
+                const bool on = ! (bool) c.getProperty (id::loop, false);
+                clipops::setLoop (view->session, *view->engine.getTempoMap(),
+                                  { c[id::uid].toString() }, on,
+                    [view] (const ValueTree& cc) -> double      // audio: seconds of source after the offset
+                    {
+                        if (cc[id::type].toString() != "audio") return 0.0;
+                        auto rd = view->engine.createAnyReader (File (cc[id::file].toString()));
+                        if (rd == nullptr || rd->sampleRate <= 0) return 0.0;
+                        const double fileSR = cc.getProperty (id::fileSR, rd->sampleRate);
+                        const double stretch = cc.getProperty (id::stretch, 1.0);
+                        return juce::jmax (0.0, (double) rd->lengthInSamples - (double) cc[id::offset])
+                               / fileSR * stretch;
+                    });
+            }
             else if (r == 7)
             {
                 const int myLane = c.getProperty (id::lane, 0);
@@ -503,6 +604,7 @@ public:
     {
         if (tv.ui.tool == Tool::razor)  { setMouseCursor (juce::MouseCursor::IBeamCursor); return; }
         if (tv.ui.tool == Tool::erase)  { setMouseCursor (juce::MouseCursor::CrosshairCursor); return; }
+        if (e.mods.isCommandDown())     { setMouseCursor (juce::MouseCursor::DraggingHandCursor); return; }
         const int w = getWidth();
         if (e.x < 7 || e.x > w - 7)
             setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
@@ -519,6 +621,7 @@ private:
     TimelineView& tv;
     Mode mode = Mode::none;
     double origStart = 0, origLen = 0, origOffset = 0;
+    double slipApplied = 0.0;             // slip delta already written during this drag
     bool duplicated = false;
     std::unique_ptr<juce::AudioThumbnail> thumb;
 };

@@ -28,27 +28,52 @@ juce::StringArray splitAt (SessionModel& session, const TempoMap& map,
             right.setProperty (id::length, s + len - ph, nullptr);
             right.setProperty (id::fadeIn, 0.0, nullptr);
 
+            const bool looped = (bool) clip.getProperty (id::loop, false);
+
             if (clip[id::type].toString() == "audio")
             {
                 const double fileSR = clip.getProperty (id::fileSR, 48000.0);
                 const double stretch = clip.getProperty (id::stretch, 1.0);
-                right.setProperty (id::offset, (double) clip[id::offset] + (ph - s) * fileSR / stretch, nullptr);
+                double d = ph - s;
+                const double passSec = (double) clip.getProperty (id::loopLen, 0.0);
+                if (looped && passSec > 1.0e-9)
+                    d = std::fmod (d, passSec);        // passes re-anchor at the new clip start
+                right.setProperty (id::offset, (double) clip[id::offset] + d * fileSR / stretch, nullptr);
             }
             else
             {
                 const double splitBeat = map.secondsToBeats (ph) - map.secondsToBeats (s);
+                const double loopBeats = (double) clip.getProperty (id::loopBeats, 0.0);
                 auto rnotes = right.getChildWithName (id::NOTES);
-                for (int i = rnotes.getNumChildren(); --i >= 0;)
+                if (looped && loopBeats > 1.0e-9)
                 {
-                    auto n = rnotes.getChild (i);
-                    const double nb = (double) n[id::beat] - splitBeat;
-                    if (nb < 0) rnotes.removeChild (i, nullptr);
-                    else n.setProperty (id::beat, nb, nullptr);
+                    // both halves keep looping the full pass; the right one
+                    // starts mid-pass, so rotate its audible notes to phase
+                    double phase = std::fmod (splitBeat, loopBeats);
+                    if (phase < 0) phase += loopBeats;
+                    for (auto n : rnotes)
+                    {
+                        const double nb = (double) n[id::beat];
+                        if (nb >= loopBeats) continue;             // silent extras stay put
+                        double rb = std::fmod (nb - phase, loopBeats);
+                        if (rb < 0) rb += loopBeats;
+                        n.setProperty (id::beat, rb, nullptr);
+                    }
                 }
-                auto lnotes = clip.getChildWithName (id::NOTES);
-                for (int i = lnotes.getNumChildren(); --i >= 0;)
-                    if ((double) lnotes.getChild (i)[id::beat] >= splitBeat)
-                        lnotes.removeChild (i, nullptr);
+                else
+                {
+                    for (int i = rnotes.getNumChildren(); --i >= 0;)
+                    {
+                        auto n = rnotes.getChild (i);
+                        const double nb = (double) n[id::beat] - splitBeat;
+                        if (nb < 0) rnotes.removeChild (i, nullptr);
+                        else n.setProperty (id::beat, nb, nullptr);
+                    }
+                    auto lnotes = clip.getChildWithName (id::NOTES);
+                    for (int i = lnotes.getNumChildren(); --i >= 0;)
+                        if ((double) lnotes.getChild (i)[id::beat] >= splitBeat)
+                            lnotes.removeChild (i, nullptr);
+                }
             }
 
             clip.setProperty (id::length, ph - s, &session.undo);
@@ -129,6 +154,79 @@ juce::StringArray paste (SessionModel& session, const std::vector<ClipboardItem>
         newUids.add (copy[id::uid].toString());
     }
     return newUids;
+}
+
+void setLoop (SessionModel& session, const TempoMap& map, const std::set<String>& uids, bool on,
+              const std::function<double (const ValueTree&)>& contentLenSecFor)
+{
+    session.undo.beginNewTransaction (on ? "loop clip" : "unloop clip");
+    for (auto track : session.tracks())
+        for (auto clip : SessionModel::clipsOf (track))
+        {
+            if (uids.count (clip[id::uid].toString()) == 0) continue;
+            clip.setProperty (id::loop, on, &session.undo);
+            if (! on) continue;                                    // pass length kept for re-enable
+
+            const double len = clip[id::length];
+            if (clip[id::type].toString() == "audio")
+            {
+                if ((double) clip.getProperty (id::loopLen, 0.0) > 1.0e-4) continue;
+                double pass = len;
+                if (contentLenSecFor != nullptr)
+                {
+                    const double avail = contentLenSecFor (clip);
+                    if (avail > 1.0e-4) pass = juce::jmin (pass, avail);
+                }
+                clip.setProperty (id::loopLen, pass, &session.undo);
+            }
+            else
+            {
+                if ((double) clip.getProperty (id::loopBeats, 0.0) > 1.0e-4) continue;
+                const double s = clip[id::start];
+                const double beats = map.secondsToBeats (s + len) - map.secondsToBeats (s);
+                clip.setProperty (id::loopBeats, juce::jmax (1.0, std::round (beats)), &session.undo);
+            }
+        }
+}
+
+void slip (SessionModel& session, const TempoMap& map, const std::set<String>& uids,
+           double deltaSec, bool newTransaction)
+{
+    if (newTransaction)
+        session.undo.beginNewTransaction ("slip");
+
+    for (auto track : session.tracks())
+        for (auto clip : SessionModel::clipsOf (track))
+        {
+            if (uids.count (clip[id::uid].toString()) == 0) continue;
+
+            if (clip[id::type].toString() == "audio")
+            {
+                const double fileSR = clip.getProperty (id::fileSR, 48000.0);
+                const double stretch = clip.getProperty (id::stretch, 1.0);
+                clip.setProperty (id::offset,
+                                  juce::jmax (0.0, (double) clip[id::offset] - deltaSec * fileSR / stretch),
+                                  &session.undo);
+            }
+            else
+            {
+                const double s = clip[id::start];
+                const double dBeats = map.secondsToBeats (s + deltaSec) - map.secondsToBeats (s);
+                const bool looped = (bool) clip.getProperty (id::loop, false);
+                const double loopBeats = (double) clip.getProperty (id::loopBeats, 0.0);
+                for (auto n : clip.getChildWithName (id::NOTES))
+                {
+                    const double nb = (double) n[id::beat];
+                    double moved = nb + dBeats;
+                    if (looped && loopBeats > 1.0e-9 && nb < loopBeats)    // rotate the audible pass
+                    {
+                        moved = std::fmod (moved, loopBeats);
+                        if (moved < 0) moved += loopBeats;
+                    }
+                    n.setProperty (id::beat, moved, &session.undo);
+                }
+            }
+        }
 }
 
 juce::StringArray duplicate (SessionModel& session, const std::set<String>& uids)

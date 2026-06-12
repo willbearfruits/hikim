@@ -688,6 +688,12 @@ void AudioEngine::updateTrackPlaylists (const ValueTree& t)
             rc.gain    = juce::Decibels::decibelsToGain ((float) (double) c.getProperty (id::clipGain, 0.0));
             rc.fadeIn  = secToSamples ((double) c.getProperty (id::fadeIn, 0.0));
             rc.fadeOut = secToSamples ((double) c.getProperty (id::fadeOut, 0.0));
+            if ((bool) c.getProperty (id::loop, false))
+            {
+                const double passSec = (double) c.getProperty (id::loopLen, 0.0);
+                if (passSec > 1.0e-4)
+                    rc.loopLen = juce::jmax ((juce::int64) 1, secToSamples (passSec));
+            }
             rc.ratio = playRatio;
             rc.reader = reader;
             rc.numFileChannels = (int) reader->numChannels;
@@ -709,24 +715,7 @@ void AudioEngine::updateTrackPlaylists (const ValueTree& t)
         for (const auto& c : t.getChildWithName (id::CLIPS))
         {
             if ((int) c.getProperty (id::lane, 0) != 0) continue;
-            const double startSec = (double) c[id::start];
-            const double lenSec = (double) c[id::length];
-            const double clipStartBeat = map->secondsToBeats (startSec);
-            const juce::int64 clipStartSa = secToSamples (startSec);
-            const juce::int64 clipEndSa = secToSamples (startSec + lenSec);
-
-            for (const auto& nt : c.getChildWithName (id::NOTES))
-            {
-                MidiNoteRT n;
-                n.on  = map->beatsToSamples (clipStartBeat + (double) nt[id::beat]);
-                n.off = map->beatsToSamples (clipStartBeat + (double) nt[id::beat] + (double) nt[id::len]);
-                if (n.on >= clipEndSa || n.off <= clipStartSa) continue;
-                n.on  = juce::jmax (n.on, clipStartSa);
-                n.off = juce::jmin (n.off, clipEndSa);
-                n.note = (juce::uint8) (int) nt[id::pitch];
-                n.vel  = (juce::uint8) juce::jlimit (1, 127, (int) nt[id::vel]);
-                pl->notes.push_back (n);
-            }
+            appendClipNotes (*pl, c, *map, currentSR);      // loop-aware (MidiSource.h)
         }
         std::sort (pl->notes.begin(), pl->notes.end(), [] (auto& a, auto& b) { return a.on < b.on; });
         for (const auto& n : pl->notes)
