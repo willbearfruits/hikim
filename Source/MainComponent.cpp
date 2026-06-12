@@ -40,6 +40,10 @@ MainComponent::MainComponent()
     {
         timeline->showTrackFxMenu (track, target);
     };
+    routingView->showInstrumentMenu = [this] (ValueTree track, juce::Component* target)
+    {
+        timeline->showInstrumentMenu (track, target);
+    };
     transportBar->onToggleView = [this] { toggleView(); };
     transportBar->onSetView = [this] (int v) { setView (v); };
     transportBar->setViewLabel ("SESSION");

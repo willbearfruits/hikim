@@ -28,6 +28,7 @@ public:
     void paintOverChildren (juce::Graphics&) override;
 
     std::function<void (ValueTree track, juce::Component* target)> showFxMenu;
+    std::function<void (ValueTree track, juce::Component* target)> showInstrumentMenu;
 
 private:
     enum class Drag { none, moveBox, out, sendA, sendB, mod };

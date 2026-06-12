@@ -31,6 +31,7 @@ public:
     void rippleDeleteSelected();             // delete + pull later clips left (per track)
     void selectAll();
     void showTrackFxMenu (ValueTree track, juce::Component* target);
+    void showInstrumentMenu (ValueTree track, juce::Component* target);   // midi tracks: pick synth/kit
     void showAutomationMenu (ValueTree track, juce::Component* target);
     void zoomKey (bool zoomIn);
     void nudgeSelected (int direction, bool fine);   // arrows: move clips by grid / 10ms

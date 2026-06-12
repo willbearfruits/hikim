@@ -1901,6 +1901,42 @@ void TimelineView::applyFxToTrack (ValueTree track, const String& fxId)
 
 // ---- track FX / automation menus -----------------------------------------
 
+void TimelineView::showInstrumentMenu (ValueTree track, juce::Component* target)
+{
+    if (track[id::type].toString() != "midi") return;
+
+    juce::PopupMenu m;
+    m.addItem (2, "GlitchTone (default saw)");
+    m.addItem (3, "RUST - FM bell/metal");
+    m.addItem (4, "GRAVEL - noise percussion");
+    m.addItem (5, "HYMN - detuned pad");
+    m.addItem (6, "RUBBLE - drum kit");
+    m.addItem (7, "WIRES - a patch as the instrument");
+
+    juce::Array<juce::PluginDescription> instruments;
+    for (const auto& d : plugins.knownList.getTypes())
+        if (d.isInstrument) instruments.add (d);
+    if (! instruments.isEmpty()) m.addSeparator();
+    int instId = 9000;
+    for (const auto& d : instruments)
+        m.addItem (instId++, d.name);
+
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (target),
+                     [this, track, instruments] (int r) mutable
+    {
+        if (r == 0) return;
+        if (r >= 2 && r <= 7)
+        {
+            static const char* kBuiltins[] = { "glitchtone", "rust", "gravel", "hymn", "rubble", "wires" };
+            applyFxToTrack (track, "fx:builtin:" + String (kBuiltins[r - 2]));
+            return;
+        }
+        const int ii = r - 9000;
+        if (ii >= 0 && ii < instruments.size())
+            applyFxToTrack (track, "fx:plug:" + instruments[ii].createIdentifierString());
+    });
+}
+
 void TimelineView::showTrackFxMenu (ValueTree track, juce::Component* target)
 {
     juce::PopupMenu m;

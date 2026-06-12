@@ -32,6 +32,8 @@ std::vector<RoutingView::Box> RoutingView::layoutBoxes()
         b.track = track;
         for (auto ins : SessionModel::insertsOf (track))
             if (ins[id::type].toString() == "instrument") b.chips.push_back (ins);
+        if (type == "midi" && b.chips.empty())
+            b.chips.push_back (ValueTree());        // "set instrument..." placeholder chip
         for (auto ins : SessionModel::insertsOf (track))
             if (ins[id::type].toString() != "instrument") b.chips.push_back (ins);
 
@@ -212,6 +214,15 @@ void RoutingView::paintCables (juce::Graphics& g)      // the whole picture, can
         for (const auto& chip : b.chips)
         {
             juce::Rectangle<int> cr (b.r.getX() + 10, cy, b.r.getWidth() - 20, 15);
+            if (! chip.isValid())                   // midi track with no instrument yet
+            {
+                g.setColour (col::dim.withAlpha (0.5f));
+                g.drawRoundedRectangle (cr.toFloat(), 2.0f, 1.0f);
+                g.setColour (col::dim);
+                g.drawText ("set instrument...", cr.reduced (4, 0), juce::Justification::centredLeft);
+                cy += 18;
+                continue;
+            }
             const String itype = chip[id::type];
             g.setColour (itype == "rack" ? col::accent.withAlpha (0.25f)
                          : itype == "patcher" ? col::play.withAlpha (0.2f)
@@ -299,20 +310,34 @@ bool RoutingView::handlePress (juce::Point<float> p, bool popup)
         {
             ui.selectedTrack = b.track[id::uid].toString();
 
-            // chip click -> open device editor; "+" -> fx menu
+            // chip click -> open device editor (placeholder -> pick an instrument);
+            // right-click -> remove / change instrument
             int cy = b.r.getY() + 38;
             for (const auto& chip : b.chips)
             {
                 if (juce::Rectangle<int> (b.r.getX() + 10, cy, b.r.getWidth() - 20, 15).contains (pi))
                 {
+                    if (! chip.isValid())
+                    {
+                        if (showInstrumentMenu) showInstrumentMenu (b.track, this);
+                        return true;
+                    }
                     if (popup)
                     {
                         ValueTree c = chip, track = b.track;
                         auto* s = &session;
+                        const bool isInstrument = chip[id::type].toString() == "instrument";
                         juce::PopupMenu m;
                         m.addItem (1, "Remove device");
-                        m.showMenuAsync ({}, [c, track, s] (int r) mutable
-                        { if (r == 1) SessionModel::insertsOf (track).removeChild (c, &s->undo); });
+                        if (isInstrument) m.addItem (2, "Change instrument...");
+                        m.showMenuAsync ({}, [c, track, s,
+                                              self = juce::Component::SafePointer<RoutingView> (this)] (int r) mutable
+                        {
+                            if (r == 1)
+                                SessionModel::insertsOf (track).removeChild (c, &s->undo);
+                            else if (r == 2 && self != nullptr && self->showInstrumentMenu)
+                                self->showInstrumentMenu (track, self.getComponent());
+                        });
                     }
                     else if (ui.openInsertEditor)
                         ui.openInsertEditor (b.track[id::uid].toString(), chip[id::uid].toString());
