@@ -106,17 +106,19 @@ devices.
 
 ## Phasing
 
-- **E1** unify palette + channels-as-nodes + zoom/LOD + the number box
-  - landed: number box; TouchDesigner zoom/pan + box LOD (chip/mid/full);
-    family palette with typed ports/cables in WIRES; `chan~` (pre/post strip
-    taps over a published ring - graph cycles are illegal, taps are how
-    feedback routing works; live meter face at every LOD); `strip` (seize
+- **E1** unify palette + channels-as-nodes + zoom/LOD + the number box — DONE
+  - number box; TouchDesigner zoom/pan + box LOD (chip/mid/full); family
+    palette with typed ports/cables in WIRES; `chan~` (pre/post strip taps
+    over a published ring - graph cycles are illegal, taps are how feedback
+    routing works; live meter face at every LOD); `strip` (seize
     gain/pan/mute by stamp-freshness - release = stop patching); `clock`
     (transport at number rate); `master~` (destructive-read inject rings,
-    consumed pre-fader by the master strip)
-  - remaining: the same palette/canvas serving PATCHER-mode and the PATCH
-    bay (design conversation first - it decides where session-undo patching
-    lands); `scene` launch events ride with it
+    consumed pre-fader by the master strip); the shared `NodeCanvas` surface
+    with all three altitudes riding it (WIRES, PATCH bay, PATCHER-mode) -
+    same navigation everywhere, models stay separate, routing edits stay on
+    the session undo stack
+  - carried into E2: `scene` launch events; a literal shared object palette
+    across altitudes (waits for object parity - sample~/instruments/poly)
 - **E2** `sample~` / instruments-as-nodes / `poly` + `mux`/`matrix~`
 - **E3** the `#` family + `screen#`
 - **E4** multichannel cables + preset morphing

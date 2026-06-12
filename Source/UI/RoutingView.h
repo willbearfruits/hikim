@@ -2,6 +2,7 @@
 #include "../Engine/AudioEngine.h"
 #include "UIState.h"
 #include "Look.h"
+#include "NodeCanvas.h"
 
 namespace dg
 {
@@ -11,20 +12,20 @@ namespace dg
 // routing - track outputs into buses/master, sends as thinner lines, and the
 // mod sources wired in dashed. Drag from an output port onto a bus to rewire;
 // drag from a mod source onto a channel to modulate one of its parameters.
+// The whole picture lives on the shared NodeCanvas (third altitude): same
+// ctrl-wheel zoom / drag-space pan as WIRES and the PATCH bay; routing edits
+// stay session edits on the global undo stack.
 // EXTEND: free-form audio cables between arbitrary devices (the engine graph
 // already supports it; this canvas is where it will land).
-class RoutingView : public juce::Component, private juce::Timer
+class RoutingView : public juce::Component, private juce::Timer,
+                    private NodeCanvas::Delegate
 {
 public:
     RoutingView (AudioEngine&, SessionModel&, UIState&);
     ~RoutingView() override;
 
     void paint (juce::Graphics&) override;
-    void mouseDown (const juce::MouseEvent&) override;
-    void mouseDrag (const juce::MouseEvent&) override;
-    void mouseUp (const juce::MouseEvent&) override;
-    void mouseDoubleClick (const juce::MouseEvent&) override;
-    void mouseMove (const juce::MouseEvent&) override;
+    void paintOverChildren (juce::Graphics&) override;
 
     std::function<void (ValueTree track, juce::Component* target)> showFxMenu;
 
@@ -45,7 +46,19 @@ private:
     juce::Rectangle<int> modBox (int idx) const;
     const Box* boxAt (const std::vector<Box>&, juce::Point<float>) const;
     void openModTargetMenu (int srcIdx, ValueTree track);
-    void timerCallback() override { repaint(); }
+    bool handlePress (juce::Point<float> p, bool popup);
+    void timerCallback() override { canvas->repaint(); repaint(); }
+
+    // NodeCanvas::Delegate (the session-as-a-patch content; canvas coords)
+    void paintCables (juce::Graphics&) override;
+    bool canvasClicked (juce::Point<float>) override;
+    void canvasPopup (juce::Point<float>) override;
+    void canvasDragged (juce::Point<float>) override;
+    void canvasMouseUp (juce::Point<float>) override;
+    void canvasDoubleClicked (juce::Point<int>) override;
+    void canvasMoved (juce::Point<float>) override;
+
+    std::unique_ptr<NodeCanvas> canvas;
 
     AudioEngine& engine;
     SessionModel& session;

@@ -22,6 +22,8 @@ public:
         virtual void canvasMouseUp (juce::Point<float>) {}       // e.g. drop a dragged cable
         virtual void canvasPopup (juce::Point<float>) {}         // right-click on the surface
         virtual bool canvasClicked (juce::Point<float>) { return false; }  // true = consumed, don't pan
+        virtual void canvasDragged (juce::Point<float>) {}       // drag while click was consumed
+        virtual void canvasMoved (juce::Point<float>) {}         // hover (cursor feedback)
     };
 
     explicit NodeCanvas (Delegate& d);
@@ -40,6 +42,7 @@ private:
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     void mouseMagnify (const juce::MouseEvent&, float scaleFactor) override;

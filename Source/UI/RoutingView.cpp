@@ -10,6 +10,10 @@ static constexpr int kBoxW = 190;
 RoutingView::RoutingView (AudioEngine& e, SessionModel& s, UIState& u)
     : engine (e), session (s), ui (u)
 {
+    canvas.reset (new NodeCanvas (*this));     // private Delegate base: convert in member scope
+    addAndMakeVisible (*canvas);
+    canvas->pan = { 0, 24 };
+    canvas->applyView();
     startTimerHz (20);
 }
 
@@ -80,12 +84,20 @@ static juce::Path routeCable (juce::Point<float> a, juce::Point<float> b)
 void RoutingView::paint (juce::Graphics& g)
 {
     g.fillAll (col::bg);
-    auto boxes = layoutBoxes();
+}
 
+void RoutingView::paintOverChildren (juce::Graphics& g)
+{
     g.setColour (col::dim);
     g.setFont (juce::Font (juce::FontOptions (11.0f)));
-    g.drawText ("PATCHER  -  channels are boxes; drag output/send ports onto buses; drag a mod source onto a channel; double-click for a new track",
+    g.drawText ("PATCHER  -  channels are boxes; drag output/send ports onto buses; drag a mod source onto a channel;"
+                " double-click for a new track - ctrl-wheel zooms, drag space pans",
                 8, 4, getWidth() - 16, 18, juce::Justification::centredLeft);
+}
+
+void RoutingView::paintCables (juce::Graphics& g)      // the whole picture, canvas coords
+{
+    auto boxes = layoutBoxes();
 
     auto findBox = [&boxes] (const String& uid) -> const Box*
     {
@@ -256,10 +268,13 @@ void RoutingView::paint (juce::Graphics& g)
     }
 }
 
-void RoutingView::mouseDown (const juce::MouseEvent& e)
+bool RoutingView::canvasClicked (juce::Point<float> p)  { return handlePress (p, false); }
+void RoutingView::canvasPopup (juce::Point<float> p)    { handlePress (p, true); }
+
+bool RoutingView::handlePress (juce::Point<float> p, bool popup)
 {
     auto boxes = layoutBoxes();
-    const auto p = e.position;
+    const auto pi = p.toInt();
 
     // mod source ports
     for (int i = 0; i < 6; ++i)
@@ -268,7 +283,7 @@ void RoutingView::mouseDown (const juce::MouseEvent& e)
             drag = Drag::mod;
             dragMod = i;
             dragPos = p;
-            return;
+            return true;
         }
 
     for (const auto& b : boxes)
@@ -276,9 +291,9 @@ void RoutingView::mouseDown (const juce::MouseEvent& e)
         const String type = b.track[id::type];
         if (type != "master")
         {
-            if (outPort (b).getDistanceFrom (p) < 10) { drag = Drag::out; dragTrack = b.track[id::uid].toString(); dragPos = p; return; }
-            if (sendPort (b, 0).getDistanceFrom (p) < 9) { drag = Drag::sendA; dragTrack = b.track[id::uid].toString(); dragPos = p; return; }
-            if (sendPort (b, 1).getDistanceFrom (p) < 9) { drag = Drag::sendB; dragTrack = b.track[id::uid].toString(); dragPos = p; return; }
+            if (outPort (b).getDistanceFrom (p) < 10) { drag = Drag::out; dragTrack = b.track[id::uid].toString(); dragPos = p; return true; }
+            if (sendPort (b, 0).getDistanceFrom (p) < 9) { drag = Drag::sendA; dragTrack = b.track[id::uid].toString(); dragPos = p; return true; }
+            if (sendPort (b, 1).getDistanceFrom (p) < 9) { drag = Drag::sendB; dragTrack = b.track[id::uid].toString(); dragPos = p; return true; }
         }
         if (b.r.toFloat().contains (p))
         {
@@ -288,9 +303,9 @@ void RoutingView::mouseDown (const juce::MouseEvent& e)
             int cy = b.r.getY() + 38;
             for (const auto& chip : b.chips)
             {
-                if (juce::Rectangle<int> (b.r.getX() + 10, cy, b.r.getWidth() - 20, 15).contains (e.getPosition()))
+                if (juce::Rectangle<int> (b.r.getX() + 10, cy, b.r.getWidth() - 20, 15).contains (pi))
                 {
-                    if (e.mods.isPopupMenu())
+                    if (popup)
                     {
                         ValueTree c = chip, track = b.track;
                         auto* s = &session;
@@ -301,44 +316,45 @@ void RoutingView::mouseDown (const juce::MouseEvent& e)
                     }
                     else if (ui.openInsertEditor)
                         ui.openInsertEditor (b.track[id::uid].toString(), chip[id::uid].toString());
-                    return;
+                    return true;
                 }
                 cy += 18;
             }
-            if (juce::Rectangle<int> (b.r.getX() + 10, cy, b.r.getWidth() - 20, 14).contains (e.getPosition()))
+            if (juce::Rectangle<int> (b.r.getX() + 10, cy, b.r.getWidth() - 20, 14).contains (pi))
             {
                 if (showFxMenu) showFxMenu (b.track, this);
-                return;
+                return true;
             }
 
             drag = Drag::moveBox;
             movingTrack = b.track;
-            moveOffset = e.getPosition() - b.r.getPosition();
-            return;
+            moveOffset = pi - b.r.getPosition();
+            return true;
         }
     }
+    return false;                       // empty canvas: let it pan
 }
 
-void RoutingView::mouseDrag (const juce::MouseEvent& e)
+void RoutingView::canvasDragged (juce::Point<float> p)
 {
     if (drag == Drag::moveBox && movingTrack.isValid())
     {
-        movingTrack.setProperty (id::x, juce::jmax (150, e.x - moveOffset.x), nullptr);
-        movingTrack.setProperty (id::y, juce::jmax (28, e.y - moveOffset.y), nullptr);
-        repaint();
+        movingTrack.setProperty (id::x, juce::jmax (150, (int) p.x - moveOffset.x), nullptr);
+        movingTrack.setProperty (id::y, juce::jmax (28, (int) p.y - moveOffset.y), nullptr);
+        canvas->repaint();
         return;
     }
     if (drag != Drag::none)
     {
-        dragPos = e.position;
-        repaint();
+        dragPos = p;
+        canvas->repaint();
     }
 }
 
-void RoutingView::mouseUp (const juce::MouseEvent& e)
+void RoutingView::canvasMouseUp (juce::Point<float> p)
 {
     auto boxes = layoutBoxes();
-    const auto* dest = boxAt (boxes, e.position);
+    const auto* dest = boxAt (boxes, p);
 
     if (drag == Drag::out && dest != nullptr)
     {
@@ -371,7 +387,7 @@ void RoutingView::mouseUp (const juce::MouseEvent& e)
     }
     drag = Drag::none;
     movingTrack = {};
-    repaint();
+    canvas->repaint();
 }
 
 void RoutingView::openModTargetMenu (int srcIdx, ValueTree track)
@@ -432,10 +448,10 @@ void RoutingView::openModTargetMenu (int srcIdx, ValueTree track)
     });
 }
 
-void RoutingView::mouseDoubleClick (const juce::MouseEvent& e)
+void RoutingView::canvasDoubleClicked (juce::Point<int> e)
 {
     auto boxes = layoutBoxes();
-    if (boxAt (boxes, e.position) != nullptr) return;
+    if (boxAt (boxes, e.toFloat()) != nullptr) return;
 
     juce::PopupMenu m;
     m.addItem (1, "Add audio track");
@@ -467,19 +483,19 @@ void RoutingView::mouseDoubleClick (const juce::MouseEvent& e)
     });
 }
 
-void RoutingView::mouseMove (const juce::MouseEvent& e)
+void RoutingView::canvasMoved (juce::Point<float> p)
 {
     auto boxes = layoutBoxes();
     for (const auto& b : boxes)
         if (b.track[id::type].toString() != "master"
-            && (outPort (b).getDistanceFrom (e.position) < 10
-                || sendPort (b, 0).getDistanceFrom (e.position) < 9
-                || sendPort (b, 1).getDistanceFrom (e.position) < 9))
+            && (outPort (b).getDistanceFrom (p) < 10
+                || sendPort (b, 0).getDistanceFrom (p) < 9
+                || sendPort (b, 1).getDistanceFrom (p) < 9))
         {
-            setMouseCursor (juce::MouseCursor::CrosshairCursor);
+            canvas->setMouseCursor (juce::MouseCursor::CrosshairCursor);
             return;
         }
-    setMouseCursor (juce::MouseCursor::NormalCursor);
+    canvas->setMouseCursor (juce::MouseCursor::NormalCursor);
 }
 
 } // namespace dg

@@ -66,7 +66,11 @@ void NodeCanvas::mouseDown (const juce::MouseEvent& e)
 
 void NodeCanvas::mouseDrag (const juce::MouseEvent& e)
 {
-    if (! panning) return;
+    if (! panning)
+    {
+        delegate.canvasDragged (e.position);
+        return;
+    }
     pan = panAtDragStart + (e.getOffsetFromDragStart().toFloat() * zoom).toInt();
     applyView();
 }
@@ -75,6 +79,11 @@ void NodeCanvas::mouseUp (const juce::MouseEvent& e)
 {
     panning = false;
     delegate.canvasMouseUp (e.position);
+}
+
+void NodeCanvas::mouseMove (const juce::MouseEvent& e)
+{
+    delegate.canvasMoved (e.position);
 }
 
 void NodeCanvas::mouseDoubleClick (const juce::MouseEvent& e)
