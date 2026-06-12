@@ -249,6 +249,7 @@ private:
     void bridgeSlotAsync (ValueTree track, ValueTree clip); // ffmpeg in background, then relaunch
     static String bridgeKeyFor (const File& src);
     static File transcodeCacheFor (const String& key);
+    static String ffmpegExecutable();                       // bundled copy first, else PATH
     static bool runFfmpegTranscode (const File& src, const File& dest);
     juce::SpinLock sessActLock;
     std::vector<SessionAction> sessActions;

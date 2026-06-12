@@ -107,8 +107,13 @@ SessionGrid::Cell SessionGrid::cellAt (juce::Point<int> p) const
         {
             c.col = col;
             c.header = true;
-            // bottom half of the header = stop button
-            c.stopBtn = p.y > kBarH + kHeadH / 2;
+            // bottom half of the header: stop square then the arm dot
+            if (p.y > kBarH + kHeadH / 2)
+            {
+                const int lx = p.x - (kSceneW + col * kColW - scrollX);
+                if (lx >= 22 && lx < 44) c.armBtn = true;
+                else                     c.stopBtn = true;
+            }
         }
         return c;
     }
@@ -172,10 +177,15 @@ void SessionGrid::paint (juce::Graphics& g)
         g.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));
         g.drawText (t[id::name].toString(), hr.removeFromTop (18).reduced (4, 0), juce::Justification::centredLeft);
 
-        // stop button (square)
+        // stop button (square), then the record-arm dot - arming here makes
+        // empty cells on this track record takes on the spot
         auto st = engine.getSessionState (t[id::uid].toString());
         g.setColour (st.playing.isNotEmpty() ? col::text : col::dim.withAlpha (0.4f));
         g.fillRect (hr.getX() + 6, hr.getY() + 2, 10, 10);
+        const bool armed = (bool) t[id::armed];
+        g.setColour (armed ? col::record : col::dim.withAlpha (0.4f));
+        if (armed) g.fillEllipse ((float) hr.getX() + 26.0f, (float) hr.getY() + 1.0f, 12.0f, 12.0f);
+        else       g.drawEllipse ((float) hr.getX() + 27.0f, (float) hr.getY() + 2.0f, 10.0f, 10.0f, 1.4f);
     }
 
     // scene rows + cells
@@ -333,7 +343,13 @@ void SessionGrid::mouseDown (const juce::MouseEvent& e)
     {
         const auto& t = tracks[(size_t) c.col];
         ui.selectedTrack = t[id::uid].toString();
-        if (c.stopBtn)
+        if (c.armBtn)
+        {
+            auto track = tracks[(size_t) c.col];
+            session.undo.beginNewTransaction ("arm track");
+            track.setProperty (id::armed, ! (bool) track[id::armed], &session.undo);
+        }
+        else if (c.stopBtn)
             engine.stopTrackSession (t[id::uid].toString());
         repaint();
         return;

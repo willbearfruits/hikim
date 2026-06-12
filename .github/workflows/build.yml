@@ -39,8 +39,15 @@ jobs:
         run: cmake --build build --config Release -j4
       - name: test
         run: .\build\ruin_tests_artefacts\Release\ruin_tests.exe
+      - name: bundle ffmpeg
+        # decode-anything out of the box: ffmpeg.exe ships next to HIKIM.exe
+        run: |
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-7.1-essentials_build.zip" -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-x
+          Copy-Item ffmpeg-x\ffmpeg-7.1-essentials_build\bin\ffmpeg.exe build\dawglitch_artefacts\Release\ffmpeg.exe
+          Copy-Item ffmpeg-x\ffmpeg-7.1-essentials_build\LICENSE build\dawglitch_artefacts\Release\ffmpeg-LICENSE.txt
       - name: portable zip
-        run: Compress-Archive -Path build\dawglitch_artefacts\Release\HIKIM.exe, README.md, LICENSE -DestinationPath HIKIM-windows-portable.zip
+        run: Compress-Archive -Path build\dawglitch_artefacts\Release\HIKIM.exe, build\dawglitch_artefacts\Release\ffmpeg.exe, build\dawglitch_artefacts\Release\ffmpeg-LICENSE.txt, README.md, LICENSE -DestinationPath HIKIM-windows-portable.zip
       - name: installer
         run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer\hikim.iss'
       - uses: actions/upload-artifact@v4

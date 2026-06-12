@@ -18,6 +18,8 @@ Name: desktopicon; Description: "Desktop shortcut"; Flags: unchecked
 
 [Files]
 Source: "..\build\dawglitch_artefacts\Release\HIKIM.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\build\dawglitch_artefacts\Release\ffmpeg.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\build\dawglitch_artefacts\Release\ffmpeg-LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 

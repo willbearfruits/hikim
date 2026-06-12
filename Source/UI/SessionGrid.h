@@ -41,7 +41,7 @@ public:
     void itemDropped (const SourceDetails&) override;
 
 private:
-    struct Cell { int col = -1, row = -1; bool sceneBtn = false, stopBtn = false, header = false; };
+    struct Cell { int col = -1, row = -1; bool sceneBtn = false, stopBtn = false, armBtn = false, header = false; };
 
     std::vector<ValueTree> gridTracks() const;        // audio + midi only
     Cell cellAt (juce::Point<int>) const;

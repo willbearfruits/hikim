@@ -2300,11 +2300,26 @@ File AudioEngine::transcodeCacheFor (const String& key)
     return dir.getChildFile (String::toHexString (key.hashCode64()) + ".wav");
 }
 
+String AudioEngine::ffmpegExecutable()
+{
+    // a bundled ffmpeg ships next to the app binary (the Windows installer and
+    // the flatpak carry one) so decode-anything works out of the box; fall back
+    // to whatever is on PATH for source builds
+   #if JUCE_WINDOWS
+    const char* name = "ffmpeg.exe";
+   #else
+    const char* name = "ffmpeg";
+   #endif
+    const auto bundled = File::getSpecialLocation (File::currentExecutableFile)
+                             .getSiblingFile (name);
+    return bundled.existsAsFile() ? bundled.getFullPathName() : String ("ffmpeg");
+}
+
 bool AudioEngine::runFfmpegTranscode (const File& src, const File& dest)
 {
     if (dest.existsAsFile()) return true;
     juce::ChildProcess proc;
-    const juce::StringArray args { "ffmpeg", "-y", "-loglevel", "error",
+    const juce::StringArray args { ffmpegExecutable(), "-y", "-loglevel", "error",
                                    "-i", src.getFullPathName(),
                                    "-vn", "-acodec", "pcm_f32le",
                                    dest.getFullPathName() };
