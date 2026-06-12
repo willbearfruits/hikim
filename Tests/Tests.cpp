@@ -1392,6 +1392,104 @@ struct TempoRampTests : juce::UnitTest
     }
 };
 
+// =========================================================================== note ops
+
+struct NoteOpsTests : juce::UnitTest
+{
+    NoteOpsTests() : UnitTest ("NoteOps") {}
+
+    static ValueTree addNote (ValueTree clip, double beat, double len, int pitch, int vel)
+    {
+        ValueTree n (id::NOTE);
+        n.setProperty (id::beat, beat, nullptr);
+        n.setProperty (id::len, len, nullptr);
+        n.setProperty (id::pitch, pitch, nullptr);
+        n.setProperty (id::vel, vel, nullptr);
+        clip.getChildWithName (id::NOTES).appendChild (n, nullptr);
+        return n;
+    }
+
+    void runTest() override
+    {
+        beginTest ("copy normalises to beat 0 and keeps len/pitch/vel");
+        SessionModel s;
+        auto tr = s.addTrack ("midi", "T");
+        auto clip = s.addMidiClip (tr, 0.0, 4.0);                 // 8 beats at 120
+        addNote (clip, 1.0, 0.5, 60, 90);
+        addNote (clip, 2.5, 1.0, 64, 70);
+        addNote (clip, 5.0, 0.25, 67, 110);                       // outside the selection
+        auto items = clipops::copyNotes (clip, { 0, 1 });
+        expectEquals ((int) items.size(), 2);
+        expectWithinAbsoluteError (items[0].beat, 0.0, 1.0e-12);
+        expectWithinAbsoluteError (items[1].beat, 1.5, 1.0e-12);
+        expectWithinAbsoluteError (items[0].len, 0.5, 1.0e-12);
+        expectWithinAbsoluteError (items[1].len, 1.0, 1.0e-12);
+        expectEquals (items[0].pitch, 60);
+        expectEquals (items[1].vel, 70);
+
+        beginTest ("paste anchors the group, clamps at 0, returns new indices");
+        auto clip2 = s.addMidiClip (tr, 4.0, 4.0);                // cross-clip target
+        auto idx = clipops::pasteNotes (s, clip2, items, 2.0);
+        auto notes2 = clip2.getChildWithName (id::NOTES);
+        expectEquals ((int) idx.size(), 2);
+        expectEquals (idx[0], 0);
+        expectEquals (idx[1], 1);
+        expectWithinAbsoluteError ((double) notes2.getChild (0)[id::beat], 2.0, 1.0e-12);
+        expectWithinAbsoluteError ((double) notes2.getChild (1)[id::beat], 3.5, 1.0e-12);
+        expectEquals ((int) notes2.getChild (1)[id::pitch], 64);
+        expectEquals ((int) notes2.getChild (0)[id::vel], 90);
+        std::vector<clipops::NoteData> early { { -1.0, 0.5, 60, 100 }, { 0.5, 0.5, 62, 100 } };
+        clipops::pasteNotes (s, clip2, early, 0.0);
+        expectWithinAbsoluteError ((double) notes2.getChild (2)[id::beat], 0.0, 1.0e-12);
+
+        beginTest ("paste undoes in one step");
+        SessionModel s2;
+        auto tr2 = s2.addTrack ("midi", "T");
+        auto clip3 = s2.addMidiClip (tr2, 0.0, 4.0);
+        clipops::pasteNotes (s2, clip3, items, 1.0);
+        expectEquals (clip3.getChildWithName (id::NOTES).getNumChildren(), 2);
+        s2.undo.undo();
+        expectEquals (clip3.getChildWithName (id::NOTES).getNumChildren(), 0);
+
+        beginTest ("duplicate lands one selection-span later (Bitwig)");
+        SessionModel s3;
+        auto tr3 = s3.addTrack ("midi", "T");
+        auto clip4 = s3.addMidiClip (tr3, 0.0, 4.0);
+        addNote (clip4, 1.0, 0.5, 60, 90);
+        addNote (clip4, 2.5, 1.0, 64, 70);                        // span 1.0 -> 3.5 = 2.5
+        auto dupIdx = clipops::duplicateNotes (s3, clip4, { 0, 1 });
+        auto notes4 = clip4.getChildWithName (id::NOTES);
+        expectEquals (notes4.getNumChildren(), 4);
+        expectEquals ((int) dupIdx.size(), 2);
+        expectWithinAbsoluteError ((double) notes4.getChild (dupIdx[0])[id::beat], 3.5, 1.0e-12);
+        expectWithinAbsoluteError ((double) notes4.getChild (dupIdx[1])[id::beat], 5.0, 1.0e-12);
+        expectEquals ((int) notes4.getChild (dupIdx[1])[id::pitch], 64);
+        expectWithinAbsoluteError ((double) notes4.getChild (0)[id::beat], 1.0, 1.0e-12);   // originals stay
+        s3.undo.undo();
+        expectEquals (notes4.getNumChildren(), 2);
+
+        beginTest ("delete removes exactly the selection, undoably");
+        SessionModel s4;
+        auto tr4 = s4.addTrack ("midi", "T");
+        auto clip5 = s4.addMidiClip (tr4, 0.0, 4.0);
+        addNote (clip5, 0.0, 0.5, 60, 100);
+        addNote (clip5, 1.0, 0.5, 62, 100);
+        addNote (clip5, 2.0, 0.5, 64, 100);
+        clipops::deleteNotes (s4, clip5, { 0, 2 });
+        auto notes5 = clip5.getChildWithName (id::NOTES);
+        expectEquals (notes5.getNumChildren(), 1);
+        expectEquals ((int) notes5.getChild (0)[id::pitch], 62);
+        s4.undo.undo();
+        expectEquals (notes5.getNumChildren(), 3);
+
+        beginTest ("copy of invalid indices is safe and empty");
+        expect (clipops::copyNotes (clip5, {}).empty());
+        expect (clipops::copyNotes (clip5, { 99 }).empty());
+        expect (clipops::pasteNotes (s4, clip5, {}, 0.0).empty());
+        expect (clipops::duplicateNotes (s4, clip5, {}).empty());
+    }
+};
+
 // ===========================================================================
 
 static TempoMapTests tempoMapTests;
@@ -1411,6 +1509,7 @@ static CrossfadeHandleTests crossfadeHandleTests;
 static ChaosAutomationTests chaosAutomationTests;
 static TapTempoTests tapTempoTests;
 static TempoRampTests tempoRampTests;
+static NoteOpsTests noteOpsTests;
 
 int main()
 {

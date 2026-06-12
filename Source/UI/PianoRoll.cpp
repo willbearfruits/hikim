@@ -151,6 +151,7 @@ public:
     void mouseDown (const juce::MouseEvent& e) override
     {
         if (! pr.clip.isValid()) return;
+        pr.grabKeyboardFocus();                // keys 1/2/3 + note clipboard act on the roll now
         pr.session.undo.beginNewTransaction ("piano roll");
         auto notes = pr.clip.getChildWithName (id::NOTES);
         marquee = false;
@@ -320,6 +321,7 @@ private:
 PianoRoll::PianoRoll (AudioEngine& e, SessionModel& s, UIState& u)
     : engine (e), session (s), ui (u)
 {
+    setWantsKeyboardFocus (true);            // clicking anywhere in the roll routes keys here
     keys = std::make_unique<Keys> (*this);
     grid = std::make_unique<Grid> (*this);
     vp.setViewedComponent (grid.get(), false);
@@ -373,6 +375,88 @@ void PianoRoll::setClip (ValueTree midiClip)
     resized();
     vp.setViewPosition (0, (kHighNote - 84) * kNoteH);
     repaint();
+}
+
+bool PianoRoll::keyPressed (const juce::KeyPress& k)
+{
+    if (! clip.isValid()) return false;
+    const int kc = k.getKeyCode();
+    auto is = [kc] (char c) { return kc == c || kc == c + 32; };   // letter, either case
+
+    if (k.getModifiers().isCommandDown())
+    {
+        if (is ('C')) { copySelectedNotes (false); return true; }
+        if (is ('X')) { copySelectedNotes (true); return true; }
+        if (is ('V')) { pasteClipboard(); return true; }
+        if (is ('D')) { duplicateSelectedNotes(); return true; }
+        if (is ('A')) { selectAllNotes(); return true; }
+        return false;                        // Ctrl+Z/S/... stay global
+    }
+    if (kc == juce::KeyPress::deleteKey || kc == juce::KeyPress::backspaceKey)
+    {
+        deleteSelectedNotes();
+        return true;                         // never falls through to clip delete mid-edit
+    }
+    if (kc == juce::KeyPress::escapeKey && ! selected.empty())
+    {
+        selected.clear();
+        grid->repaint();
+        return true;
+    }
+    return false;
+}
+
+void PianoRoll::copySelectedNotes (bool cut)
+{
+    if (! clip.isValid() || selected.empty()) return;
+    noteClipboard = clipops::copyNotes (clip, selected);
+    if (cut)
+    {
+        clipops::deleteNotes (session, clip, selected);
+        selected.clear();
+        grid->repaint();
+    }
+}
+
+void PianoRoll::pasteClipboard()
+{
+    if (! clip.isValid() || noteClipboard.empty()) return;
+    auto map = engine.getTempoMap();
+    const double phBeat = map->secondsToBeats (engine.getPositionSeconds())
+                        - map->secondsToBeats ((double) clip[id::start]);
+    double at = 0.0;                         // playhead elsewhere: land at the clip start
+    if (phBeat > 0.0 && phBeat < clipLenBeats())
+        at = std::round (phBeat / gridBeats()) * gridBeats();
+    const auto fresh = clipops::pasteNotes (session, clip, noteClipboard, at);
+    selected = std::set<int> (fresh.begin(), fresh.end());
+    grid->repaint();
+}
+
+void PianoRoll::duplicateSelectedNotes()
+{
+    if (! clip.isValid() || selected.empty()) return;
+    const auto fresh = clipops::duplicateNotes (session, clip, selected);
+    if (! fresh.empty())
+        selected = std::set<int> (fresh.begin(), fresh.end());
+    grid->repaint();
+}
+
+void PianoRoll::deleteSelectedNotes()
+{
+    if (! clip.isValid() || selected.empty()) return;
+    clipops::deleteNotes (session, clip, selected);
+    selected.clear();
+    grid->repaint();
+}
+
+void PianoRoll::selectAllNotes()
+{
+    if (! clip.isValid()) return;
+    auto notes = clip.getChildWithName (id::NOTES);
+    selected.clear();
+    for (int i = 0; i < notes.getNumChildren(); ++i)
+        selected.insert (i);
+    grid->repaint();
 }
 
 double PianoRoll::gridBeats() const

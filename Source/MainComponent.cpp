@@ -94,6 +94,8 @@ MainComponent::MainComponent()
     {
         pianoRoll->setClip (clip);
         selectTab ("PIANO ROLL");
+        if (pianoRoll->isShowing())
+            pianoRoll->grabKeyboardFocus();     // note keys work the moment the roll opens
     };
     ui.openSampleEditor = [this] (ValueTree clip)
     {
@@ -200,6 +202,11 @@ void MainComponent::HelpOverlay::paint (juce::Graphics& g)
         "Try the GESTURES menu inside it\n"
         "PATCHER view: drag CHAOS onto a channel - pick a knob\n"
         "WIRES: build your own instrument from boxes + cables\n"
+        "\n"
+        "PIANO ROLL (click it and it takes the keys)\n"
+        "Ctrl+C/X/V  copy / cut / paste notes - paste at playhead\n"
+        "Ctrl+D  repeat the selection right after itself\n"
+        "Delete notes      Ctrl+A all notes      Esc deselect\n"
         "\n"
         "KEYS\n"
         "Ctrl+X/C/V  cut / copy / paste      Ctrl+D duplicate\n"

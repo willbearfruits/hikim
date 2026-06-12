@@ -1491,6 +1491,7 @@ private:
 TimelineView::TimelineView (AudioEngine& e, SessionModel& s, PluginHost& p, UIState& u)
     : engine (e), session (s), plugins (p), ui (u)
 {
+    setWantsKeyboardFocus (true);            // clicking the timeline reclaims keys from panels
     ruler = std::make_unique<Ruler> (*this);
     addAndMakeVisible (*ruler);
 

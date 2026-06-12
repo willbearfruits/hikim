@@ -60,4 +60,25 @@ namespace dg::clipops
     // handle). Returns the applied (clamped) overlap length.
     double resizeOverlap (SessionModel&, ValueTree left, ValueTree right,
                           double newOverlapSec, bool newTransaction = true);
+
+    // ---- piano-roll note ops ----------------------------------------------
+    // MIDI notes are NOTE children of the clip's NOTES tree, beats relative
+    // to the clip start. Indices index into that tree (the roll's selection).
+    struct NoteData { double beat = 0.0, len = 0.25; int pitch = 60, vel = 100; };
+
+    // clipboard snapshot, normalised so the earliest note sits at beat 0
+    // (relative positions/lengths/velocities preserved; clip-agnostic)
+    std::vector<NoteData> copyNotes (const ValueTree& clip, const std::set<int>& noteIndices);
+
+    // append the items anchored at atBeat (each note clamped to beat >= 0);
+    // returns the new notes' indices so the UI can select them
+    std::vector<int> pasteNotes (SessionModel&, ValueTree clip,
+                                 const std::vector<NoteData>& items, double atBeat);
+
+    // Bitwig-style duplicate: copies land one selection-span later
+    // (span = earliest start -> latest end of the selected notes)
+    std::vector<int> duplicateNotes (SessionModel&, ValueTree clip,
+                                     const std::set<int>& noteIndices);
+
+    void deleteNotes (SessionModel&, ValueTree clip, const std::set<int>& noteIndices);
 }
