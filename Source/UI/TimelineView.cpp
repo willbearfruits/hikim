@@ -1319,15 +1319,19 @@ public:
             return;
         }
 
-        // pencil: drag out a MIDI clip on an instrument lane
+        // pencil: drag out a MIDI clip on an instrument lane (first click only;
+        // a double-click's second press must not draw again)
         if (tv.ui.tool == Tool::pencil)
         {
             const int rowIdx = tv.rowIndexAtY (e.y);
             if (rowIdx >= 0 && ! tv.rows[(size_t) rowIdx].lane.isValid()
                 && tv.rows[(size_t) rowIdx].track[id::type].toString() == "midi")
             {
-                drawStartSec = tv.snap (juce::jmax (0.0, tv.xToTime (e.x)));
-                drawClip = createMidiClipAt (tv.rows[(size_t) rowIdx].track, drawStartSec);
+                if (e.getNumberOfClicks() == 1)
+                {
+                    drawStartSec = tv.snap (juce::jmax (0.0, tv.xToTime (e.x)));
+                    drawClip = createMidiClipAt (tv.rows[(size_t) rowIdx].track, drawStartSec);
+                }
                 return;
             }
         }
@@ -1386,6 +1390,7 @@ public:
 
     void mouseDoubleClick (const juce::MouseEvent& e) override
     {
+        if (tv.ui.tool == Tool::pencil) return;   // the single click already drew the clip
         // double-click an empty Inst row: clip appears + piano roll opens
         const int rowIdx = tv.rowIndexAtY (e.y);
         if (rowIdx < 0 || tv.rows[(size_t) rowIdx].lane.isValid()) return;
