@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(DAWGLITCH VERSION 0.2.0 LANGUAGES C CXX)
+project(DAWGLITCH VERSION 0.3.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -73,7 +73,6 @@ target_include_directories(dawglitch PRIVATE Source)
 
 target_compile_definitions(dawglitch PRIVATE
     JUCE_WEB_BROWSER=0
-    JUCE_USE_CURL=0
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:dawglitch,JUCE_PRODUCT_NAME>"
     JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:dawglitch,JUCE_VERSION>"
     JUCE_USE_MP3AUDIOFORMAT=1       # mp3 decode on Linux (mac/win get it via OS codecs)
@@ -85,7 +84,12 @@ target_compile_definitions(dawglitch PRIVATE
     JUCE_DISPLAY_SPLASH_SCREEN=0)   # AGPLv3 build (JUCE 8 free tier)
 
 if(UNIX AND NOT APPLE)
-    target_compile_definitions(dawglitch PRIVATE JUCE_ALSA=1 JUCE_JACK=1)
+    # curl is dlopened at runtime (every distro + the flatpak runtime ship it);
+    # the update check needs working URL streams, which Linux routes through curl
+    target_compile_definitions(dawglitch PRIVATE JUCE_ALSA=1 JUCE_JACK=1
+        JUCE_USE_CURL=1 JUCE_LOAD_CURL_SYMBOLS_LAZILY=1)
+else()
+    target_compile_definitions(dawglitch PRIVATE JUCE_USE_CURL=0)   # Windows/mac use native web streams
 endif()
 
 # MSVC: windows.h's min/max macros break std::numeric_limits<>::max() in

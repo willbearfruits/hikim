@@ -1,7 +1,7 @@
 ; HIKIM Windows installer (Inno Setup 6 - preinstalled on GitHub windows runners)
 [Setup]
 AppName=HIKIM
-AppVersion=0.2.0
+AppVersion=0.3.0
 AppPublisher=characterglitch
 DefaultDirName={autopf}\HIKIM
 DefaultGroupName=HIKIM

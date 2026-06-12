@@ -58,7 +58,8 @@ private:
         mUndo, mRedo,
         mAddAudio, mAddMidi, mAddBus, mAddVideo, mAddPatchTrack,
         mAudioSettings, mPluginManager, mVideoWindow,
-        mThemeLight, mScale90, mScale100, mScale110, mScale125, mScale150
+        mThemeLight, mScale90, mScale100, mScale110, mScale125, mScale150,
+        mCheckUpdates
     };
 
     // thin draggable divider (horizontal bar, vertical drag)

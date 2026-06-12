@@ -11,6 +11,7 @@
 #include "../Source/Engine/Analysis.h"
 #include "../Source/Rack/RackProcessor.h"
 #include "../Source/Patcher/PatcherProcessor.h"
+#include "../Source/UI/Updater.h"
 
 using namespace dg;
 
@@ -426,6 +427,25 @@ struct PatcherTests : juce::UnitTest
     }
 };
 
+// =========================================================================== updater
+
+struct UpdaterTests : juce::UnitTest
+{
+    UpdaterTests() : UnitTest ("Updater") {}
+    void runTest() override
+    {
+        beginTest ("semver compare");
+        expect (Updater::isNewer ("0.3.0", "0.2.0"));
+        expect (Updater::isNewer ("v0.3.0", "0.2.9"));
+        expect (Updater::isNewer ("0.10.0", "0.9.9"));      // numeric, not lexicographic
+        expect (Updater::isNewer ("1.0.0", "0.99.99"));
+        expect (! Updater::isNewer ("0.2.0", "0.2.0"));
+        expect (! Updater::isNewer ("v0.2.0", "0.2.0"));
+        expect (! Updater::isNewer ("0.2.0", "0.10.0"));
+        expect (! Updater::isNewer ("", "0.2.0"));
+    }
+};
+
 // =========================================================================== analysis
 
 struct AnalysisTests : juce::UnitTest
@@ -521,6 +541,7 @@ static RackTests rackTests;
 static InstrumentTests instrumentTests;
 static PatcherTests patcherTests;
 static AnalysisTests analysisTests;
+static UpdaterTests updaterTests;
 static StretchTests stretchTests;
 
 int main()

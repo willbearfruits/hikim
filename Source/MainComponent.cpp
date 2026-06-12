@@ -1,4 +1,5 @@
 #include "MainComponent.h"
+#include "UI/Updater.h"
 
 namespace dg
 {
@@ -127,6 +128,9 @@ MainComponent::MainComponent()
 
     startTimerHz (20);
     setSize (1500, 900);
+
+    // silent daily update check, well after first paint
+    juce::Timer::callAfterDelay (6000, [props] { Updater::checkAsync (props, false); });
 }
 
 MainComponent::~MainComponent()
@@ -283,6 +287,8 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const String&)
         scale.addItem (mScale125, "125%", true, std::abs (cur - 1.25) < 0.01);
         scale.addItem (mScale150, "150%", true, std::abs (cur - 1.5) < 0.01);
         m.addSubMenu ("UI scale", scale);
+        m.addSeparator();
+        m.addItem (mCheckUpdates, "Check for updates...");
     }
     return m;
 }
@@ -297,6 +303,7 @@ void MainComponent::menuItemSelected (int itemID, int)
         case mSaveAs: doSave (true); break;
         case mExport: showExportDialog (*engine, session); break;
         case mQuit: juce::JUCEApplication::getInstance()->systemRequestedQuit(); break;
+        case mCheckUpdates: Updater::checkAsync (appProps.getUserSettings(), true); break;
         case mUndo: session.undo.undo(); break;
         case mRedo: session.undo.redo(); break;
         case mAddAudio: session.undo.beginNewTransaction ("add track"); session.addTrack ("audio", "Audio " + String (session.tracks().getNumChildren())); break;
