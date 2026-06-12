@@ -8,9 +8,47 @@ static const Identifier kArgs ("args"), kSrcPort ("srcPort"), kDstPort ("dstPort
 
 static int portCount (const String& type, bool outs)
 {
-    for (const auto& s : PatcherProcessor::specs())
-        if (type == s.name) return outs ? s.outs : s.ins;
+    if (auto* s = PatcherProcessor::specFor (type))
+        return outs ? s->outs : s->ins;
     return 0;
+}
+
+static juce::Colour famColour (PatcherProcessor::Family f)
+{
+    switch (f)
+    {
+        case PatcherProcessor::famSource:  return col::nodeSource;
+        case PatcherProcessor::famEffect:  return col::nodeEffect;
+        case PatcherProcessor::famMath:    return col::nodeMath;
+        case PatcherProcessor::famTime:    return col::nodeTime;
+        case PatcherProcessor::famRouting: return col::nodeRouting;
+    }
+    return col::accent;
+}
+
+static juce::Colour famColour (const String& objName)
+{
+    if (auto* s = PatcherProcessor::specFor (objName))
+        return famColour (s->fam);
+    return col::accent;
+}
+
+static char portType (const String& objName, bool out, int idx)   // 's' / 'n' / 'e'
+{
+    if (auto* s = PatcherProcessor::specFor (objName))
+    {
+        const char* t = out ? s->outTypes : s->inTypes;
+        for (int i = 0; t[i] != 0; ++i)
+            if (i == idx) return t[i];
+    }
+    return 's';
+}
+
+static juce::Colour cableColour (char type)
+{
+    return type == 'n' ? col::nodeMath
+         : type == 'e' ? col::nodeTime
+         : col::accent;
 }
 
 // =========================================================================== NodeComp
@@ -27,17 +65,25 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        // LOD rides the canvas zoom: far = chip (the name is the face),
+        // mid = name + ports, near = full face with the object's help line
+        const float zoom = editor.canvasZoom();
+        const bool chip = zoom < 0.6f && ! isNumber;            // (far/near are windef.h macros)
+        const bool full = zoom >= 1.4f && ! isNumber;
+
         auto r = getLocalBounds().toFloat().reduced (1.0f);
-        g.setColour (col::panelHi);
-        g.fillRoundedRectangle (r, 3.0f);
         const String type = node[id::type];
-        g.setColour (isNumber ? col::play
-                    : type.endsWith ("~") ? col::accent : col::accent2);
-        g.drawRoundedRectangle (r, 3.0f, isNumber ? 1.6f : 1.2f);
+        const auto fam = isNumber ? col::play : famColour (type);
+
+        g.setColour (chip ? fam.withAlpha (0.18f) : col::panelHi);
+        g.fillRoundedRectangle (r, 3.0f);
+        g.setColour (fam);
+        g.drawRoundedRectangle (r, 3.0f, isNumber ? 1.6f : chip ? 1.8f : 1.2f);
 
         g.setColour (col::text);
         g.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(),
-                                                  isNumber ? 15.0f : 12.0f, juce::Font::plain)));
+                                                  isNumber ? 15.0f : chip ? 14.0f : 12.0f,
+                                                  chip ? juce::Font::bold : juce::Font::plain)));
         if (isNumber)
         {
             const float v = editor.patcher.numberValueFor (uid(),
@@ -48,19 +94,54 @@ public:
             g.setFont (juce::Font (juce::FontOptions (8.5f)));
             g.drawText ("#", 5, 0, 12, getHeight(), juce::Justification::centredLeft);
         }
+        else if (chip)
+        {
+            g.drawText (type, getLocalBounds(), juce::Justification::centred);
+            return;                                 // chip: no ports, no args
+        }
+        else if (full)
+        {
+            g.drawText ((type + " " + node[kArgs].toString()).trim(),
+                        getLocalBounds().reduced (6, 0).removeFromTop (24),
+                        juce::Justification::centredLeft);
+            if (auto* spec = PatcherProcessor::specFor (type))
+            {
+                g.setColour (col::dim);
+                g.setFont (juce::Font (juce::FontOptions (8.0f)));
+                g.drawText (spec->desc, getLocalBounds().reduced (6, 0).removeFromBottom (16),
+                            juce::Justification::centredLeft);
+            }
+        }
         else
             g.drawText ((type + " " + node[kArgs].toString()).trim(),
                         getLocalBounds().reduced (6, 0), juce::Justification::centredLeft);
 
-        // inlets (top) / outlets (bottom); inlets glow while a cable is dragging
+        // typed ports (NODES.md shapes: signal dome, number square, event triangle);
+        // inlets on top glow while a cable is dragging
         const int ins = portCount (type, false), outs = portCount (type, true);
-        g.setColour (editor.isCableDragging() && ins > 0 ? col::play : col::text);
+        const bool glow = editor.isCableDragging() && ins > 0;
         for (int i = 0; i < ins; ++i)
-            g.fillRect (portX (i, ins) - (editor.isCableDragging() ? 6 : 4), 0,
-                        editor.isCableDragging() ? 12 : 8, editor.isCableDragging() ? 6 : 4);
-        g.setColour (col::text);
+            drawPort (g, (float) portX (i, ins), true, portType (type, false, i), glow);
         for (int o = 0; o < outs; ++o)
-            g.fillRect (portX (o, outs) - 4, getHeight() - 4, 8, 4);
+            drawPort (g, (float) portX (o, outs), false, portType (type, true, o), false);
+    }
+
+    void drawPort (juce::Graphics& g, float cx, bool inlet, char t, bool glow) const
+    {
+        const float h = (float) getHeight();
+        g.setColour (glow ? col::play : cableColour (t).interpolatedWith (col::text, t == 's' ? 1.0f : 0.25f));
+        const float s = glow ? 1.5f : 1.0f;
+        if (t == 'n')
+            g.fillRect (cx - 3.5f * s, inlet ? 0.0f : h - 5.0f * s, 7.0f * s, 5.0f * s);
+        else if (t == 'e')
+        {
+            juce::Path p;
+            if (inlet) { p.addTriangle (cx - 4.5f * s, 0.0f, cx + 4.5f * s, 0.0f, cx, 5.5f * s); }
+            else       { p.addTriangle (cx - 4.5f * s, h - 5.5f * s, cx + 4.5f * s, h - 5.5f * s, cx, h); }
+            g.fillPath (p);
+        }
+        else    // signal: a dome on the edge (clipped half-ellipse)
+            g.fillEllipse (cx - 4.5f * s, inlet ? -4.5f * s : h - 4.5f * s, 9.0f * s, 9.0f * s);
     }
 
     int portX (int idx, int count) const
@@ -252,8 +333,13 @@ public:
             const auto a = editor.outletPos (c[id::src].toString(), (int) c[kSrcPort]);
             const auto b = editor.inletPos (c[kDst].toString(), (int) c[kDstPort]);
             if (a.isOrigin() || b.isOrigin()) continue;
-            g.setColour (col::accent.withAlpha (0.8f));
-            g.strokePath (cablePath (a, b), juce::PathStrokeType (1.8f));
+            // NODES.md cable table: signal thick, number thin solid, event thin
+            char t = 's';
+            for (auto* nc : editor.nodeComps)
+                if (nc->uid() == c[id::src].toString())
+                { t = portType (nc->node[id::type].toString(), true, (int) c[kSrcPort]); break; }
+            g.setColour (cableColour (t).withAlpha (t == 's' ? 0.8f : 0.9f));
+            g.strokePath (cablePath (a, b), juce::PathStrokeType (t == 's' ? 2.4f : 1.3f));
         }
         if (editor.draggingCable)
         {
@@ -329,12 +415,33 @@ private:
     juce::Point<int> panAtDragStart;
 };
 
+float PatcherEditor::canvasZoom() const
+{
+    return canvas != nullptr ? canvas->zoom : 1.0f;
+}
+
 // =========================================================================== ObjPalette
 class PatcherEditor::ObjPalette : public juce::Component, private juce::ListBoxModel
 {
 public:
     explicit ObjPalette (PatcherEditor& ed) : editor (ed)
     {
+        // one section per NODES.md family, in spec order
+        static const std::pair<PatcherProcessor::Family, const char*> sections[] = {
+            { PatcherProcessor::famSource,  "SOURCES" },
+            { PatcherProcessor::famEffect,  "EFFECTS" },
+            { PatcherProcessor::famMath,    "NUMBERS & MATH" },
+            { PatcherProcessor::famTime,    "TIME & CHANCE" },
+            { PatcherProcessor::famRouting, "ROUTING" },
+        };
+        for (const auto& [fam, name] : sections)
+        {
+            rows.push_back ({ nullptr, name });
+            for (const auto& s : PatcherProcessor::specs())
+                if (s.fam == fam)
+                    rows.push_back ({ &s, nullptr });
+        }
+
         title.setText ("OBJECTS", juce::dontSendNotification);
         title.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
         title.setColour (juce::Label::textColourId, col::accent2);
@@ -345,32 +452,43 @@ public:
         addAndMakeVisible (list);
     }
 
-    int getNumRows() override { return (int) PatcherProcessor::specs().size(); }
+    int getNumRows() override { return (int) rows.size(); }
 
     void paintListBoxItem (int row, juce::Graphics& g, int w, int h, bool selected) override
     {
         if (row < 0 || row >= getNumRows()) return;
-        const auto& s = PatcherProcessor::specs()[(size_t) row];
+        const auto& r = rows[(size_t) row];
+        if (r.spec == nullptr)              // section header
+        {
+            g.setColour (col::dim);
+            g.setFont (juce::Font (juce::FontOptions (9.0f, juce::Font::bold)));
+            g.drawText (r.header, 6, 0, w - 10, h - 6, juce::Justification::bottomLeft);
+            g.setColour (col::line);
+            g.drawHorizontalLine (h - 3, 4.0f, (float) w - 8.0f);
+            return;
+        }
         if (selected) { g.setColour (col::accent.withAlpha (0.2f)); g.fillRect (0, 0, w, h); }
-        g.setColour (String (s.name).endsWith ("~") ? col::accent : col::accent2);
+        g.setColour (famColour (r.spec->fam));
         g.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::bold)));
-        g.drawText (s.name, 6, 1, w - 10, 14, juce::Justification::left);
+        g.drawText (r.spec->name, 6, 1, w - 10, 14, juce::Justification::left);
         g.setColour (col::dim);
         g.setFont (juce::Font (juce::FontOptions (9.5f)));
-        g.drawText (s.desc, 6, 15, w - 10, 12, juce::Justification::left);
+        g.drawText (r.spec->desc, 6, 15, w - 10, 12, juce::Justification::left);
     }
 
-    juce::var getDragSourceDescription (const juce::SparseSet<int>& rows) override
+    juce::var getDragSourceDescription (const juce::SparseSet<int>& selection) override
     {
-        if (rows.size() > 0)
-            return "obj:" + String (PatcherProcessor::specs()[(size_t) rows[0]].name);
+        if (selection.size() > 0)
+            if (const auto* s = rows[(size_t) selection[0]].spec)
+                return "obj:" + String (s->name);
         return {};
     }
 
     void listBoxItemClicked (int row, const juce::MouseEvent& e) override
     {
         if (e.mouseWasClicked() && row >= 0)
-            editor.placeObject (PatcherProcessor::specs()[(size_t) row].name, { -1, -1 });
+            if (const auto* s = rows[(size_t) row].spec)
+                editor.placeObject (s->name, { -1, -1 });
     }
 
     void paint (juce::Graphics& g) override
@@ -388,7 +506,10 @@ public:
     }
 
 private:
+    struct Row { const PatcherProcessor::Spec* spec; const char* header; };
+
     PatcherEditor& editor;
+    std::vector<Row> rows;
     juce::Label title;
     juce::ListBox list;
 };

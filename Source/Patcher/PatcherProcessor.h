@@ -24,9 +24,16 @@ public:
         oDelay, oTanh, oSah, oEnv, oMetro, oRandom, oScale, oSig, oParam,
         oOscIn, oOscOut, oModOut, oNumber, oUnknown
     };
-    struct Spec { const char* name; Obj type; int ins, outs; const char* defaults; const char* desc; };
+    // NODES.md object families (palette sections + box/cable colours)
+    enum Family { famSource, famEffect, famMath, famTime, famRouting };
+
+    // port types: 's' signal  'n' number  'e' event (NODES.md cable table);
+    // inTypes/outTypes are one char per port
+    struct Spec { const char* name; Obj type; int ins, outs; const char* defaults; const char* desc;
+                  Family fam; const char* inTypes; const char* outTypes; };
     static const std::vector<Spec>& specs();
     static Obj parseType (const String& name);
+    static const Spec* specFor (const String& name);
 
     PatcherProcessor();
     ~PatcherProcessor() override;

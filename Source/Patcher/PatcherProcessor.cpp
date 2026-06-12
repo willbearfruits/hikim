@@ -11,31 +11,38 @@ static const Identifier kArgs ("args"), kSrcPort ("srcPort"), kDstPort ("dstPort
 const std::vector<PatcherProcessor::Spec>& PatcherProcessor::specs()
 {
     static const std::vector<Spec> s = {
-        { "adc~", oAdc, 0, 2, "", "track audio in (L R)" },
-        { "dac~", oDac, 2, 0, "", "to the track output" },
-        { "osc~", oOsc, 1, 1, "220", "sine osc (freq)" },
-        { "phasor~", oPhasor, 1, 1, "2", "ramp 0..1 (freq)" },
-        { "noise~", oNoise, 0, 1, "", "white noise" },
-        { "lfo~", oLfo, 1, 1, "1 0", "lfo -1..1 (rate, shape 0-3)" },
-        { "*~", oMul, 2, 1, "0.5", "multiply (in2 or arg)" },
-        { "+~", oAdd, 2, 1, "0", "add (in2 or arg)" },
-        { "lores~", oLores, 2, 1, "800 0.5", "resonant lowpass (cutoff, res)" },
-        { "hipass~", oHipass, 1, 1, "120", "highpass (cutoff)" },
-        { "delay~", oDelay, 2, 1, "250 0.5", "delay (ms, feedback) - loops ok" },
-        { "tanh~", oTanh, 1, 1, "4", "saturate (drive)" },
-        { "sah~", oSah, 2, 1, "", "sample & hold (sig, trig)" },
-        { "env~", oEnv, 1, 1, "5 120", "envelope follower (atk, rel ms)" },
-        { "metro", oMetro, 1, 1, "2", "pulse train (hz)" },
-        { "random", oRandom, 1, 1, "", "random 0..1 on trigger" },
-        { "scale", oScale, 1, 1, "0 1", "map 0..1 to (lo, hi)" },
-        { "sig", oSig, 0, 1, "0.5", "constant value" },
-        { "param", oParam, 0, 1, "1", "host knob P1-8" },
-        { "oscin", oOscIn, 0, 1, "9000 /ruin", "OSC receive (port, /addr)" },
-        { "oscout", oOscOut, 1, 0, "127.0.0.1 57120 /ruin/out", "OSC send (host, port, /addr)" },
-        { "modout", oModOut, 1, 0, "", "signal -> mod source in the PATCH bay" },
-        { "number", oNumber, 1, 1, "0", "value box: drag it (Ctrl-drag moves) - the modulation currency" },
+        { "adc~", oAdc, 0, 2, "", "track audio in (L R)", famSource, "", "ss" },
+        { "dac~", oDac, 2, 0, "", "to the track output", famSource, "ss", "" },
+        { "osc~", oOsc, 1, 1, "220", "sine osc (freq)", famSource, "s", "s" },
+        { "phasor~", oPhasor, 1, 1, "2", "ramp 0..1 (freq)", famSource, "s", "s" },
+        { "noise~", oNoise, 0, 1, "", "white noise", famSource, "", "s" },
+        { "lfo~", oLfo, 1, 1, "1 0", "lfo -1..1 (rate, shape 0-3)", famSource, "s", "s" },
+        { "sig", oSig, 0, 1, "0.5", "constant value", famSource, "", "n" },
+        { "lores~", oLores, 2, 1, "800 0.5", "resonant lowpass (cutoff, res)", famEffect, "ss", "s" },
+        { "hipass~", oHipass, 1, 1, "120", "highpass (cutoff)", famEffect, "s", "s" },
+        { "delay~", oDelay, 2, 1, "250 0.5", "delay (ms, feedback) - loops ok", famEffect, "ss", "s" },
+        { "tanh~", oTanh, 1, 1, "4", "saturate (drive)", famEffect, "s", "s" },
+        { "number", oNumber, 1, 1, "0", "value box: drag it (Ctrl-drag moves) - the modulation currency", famMath, "n", "n" },
+        { "*~", oMul, 2, 1, "0.5", "multiply (in2 or arg)", famMath, "ss", "s" },
+        { "+~", oAdd, 2, 1, "0", "add (in2 or arg)", famMath, "ss", "s" },
+        { "scale", oScale, 1, 1, "0 1", "map 0..1 to (lo, hi)", famMath, "n", "n" },
+        { "sah~", oSah, 2, 1, "", "sample & hold (sig, trig)", famMath, "se", "s" },
+        { "env~", oEnv, 1, 1, "5 120", "envelope follower (atk, rel ms)", famMath, "s", "n" },
+        { "param", oParam, 0, 1, "1", "host knob P1-8", famMath, "", "n" },
+        { "metro", oMetro, 1, 1, "2", "pulse train (hz)", famTime, "n", "e" },
+        { "random", oRandom, 1, 1, "", "random 0..1 on trigger", famTime, "e", "n" },
+        { "oscin", oOscIn, 0, 1, "9000 /ruin", "OSC receive (port, /addr)", famRouting, "", "n" },
+        { "oscout", oOscOut, 1, 0, "127.0.0.1 57120 /ruin/out", "OSC send (host, port, /addr)", famRouting, "n", "" },
+        { "modout", oModOut, 1, 0, "", "signal -> mod source in the PATCH bay", famRouting, "s", "" },
     };
     return s;
+}
+
+const PatcherProcessor::Spec* PatcherProcessor::specFor (const String& name)
+{
+    for (const auto& s : specs())
+        if (name == s.name) return &s;
+    return nullptr;
 }
 
 PatcherProcessor::Obj PatcherProcessor::parseType (const String& name)

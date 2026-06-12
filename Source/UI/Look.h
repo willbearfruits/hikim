@@ -11,6 +11,9 @@ namespace col
 {
     extern juce::Colour bg, panel, panelHi, line, text, dim;
     extern juce::Colour accent, accent2, play, record, clipAudio, clipMidi;
+    // NODES object families (NODES.md): sources amber, effects red,
+    // numbers/math grey-blue, time/chance green, routing teal
+    extern juce::Colour nodeSource, nodeEffect, nodeMath, nodeTime, nodeRouting;
 }
 
 class Look : public juce::LookAndFeel_V4

@@ -29,6 +29,7 @@ public:
     void endCable (juce::Point<float> pCanvas);
     void placeObject (const String& specName, juce::Point<int> posInEditor);
     bool isCableDragging() const { return draggingCable; }
+    float canvasZoom() const;                      // node faces LOD on this
 
     // palette drags
     bool isInterestedInDragSource (const SourceDetails& d) override

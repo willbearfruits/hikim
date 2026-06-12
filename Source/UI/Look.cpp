@@ -7,6 +7,7 @@ namespace col
 {
     juce::Colour bg, panel, panelHi, line, text, dim;
     juce::Colour accent, accent2, play, record, clipAudio, clipMidi;
+    juce::Colour nodeSource, nodeEffect, nodeMath, nodeTime, nodeRouting;
 }
 
 Look& Look::get()
@@ -38,6 +39,11 @@ void Look::setTheme (bool lightTheme)
         col::record  = juce::Colour (0xffc81d1d);
         col::clipAudio = juce::Colour (0xff2d5c8f);
         col::clipMidi  = juce::Colour (0xff5d3bb5);
+        col::nodeSource  = juce::Colour (0xffa06a10);
+        col::nodeEffect  = juce::Colour (0xffc22d2d);
+        col::nodeMath    = juce::Colour (0xff4a6a8a);
+        col::nodeTime    = juce::Colour (0xff247a47);
+        col::nodeRouting = juce::Colour (0xff1a7a78);
     }
     else
     {
@@ -53,6 +59,11 @@ void Look::setTheme (bool lightTheme)
         col::record  = juce::Colour (0xffff2020);
         col::clipAudio = juce::Colour (0xff3a6ea5);
         col::clipMidi  = juce::Colour (0xff7a55d1);
+        col::nodeSource  = juce::Colour (0xffe0a040);
+        col::nodeEffect  = juce::Colour (0xffe04040);
+        col::nodeMath    = juce::Colour (0xff7a9cc0);
+        col::nodeTime    = juce::Colour (0xff50c878);
+        col::nodeRouting = juce::Colour (0xff35b8b4);
     }
 
     auto scheme = light ? getLightColourScheme() : getDarkColourScheme();
