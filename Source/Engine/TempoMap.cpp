@@ -15,7 +15,8 @@ TempoMap::TempoMap (const ValueTree& tree, double sampleRate) : sr (sampleRate)
     for (const auto& c : tree)
     {
         if (c.hasType (id::TEMPO))
-            tempos.push_back ({ (double) c[id::beat], (double) c[id::bpm] });
+            tempos.push_back ({ (double) c[id::beat], (double) c[id::bpm],
+                                (bool) c.getProperty (id::ramp, false) });
         else if (c.hasType (id::TIMESIG))
             sigs.push_back ({ (double) c[id::beat], (int) c[id::num], (int) c[id::den] });
     }
@@ -31,6 +32,17 @@ TempoMap::TempoMap (const ValueTree& tree, double sampleRate) : sr (sampleRate)
     rebuildAnchors();
 }
 
+// A ramped segment glides bpm linearly in beats, so elapsed time follows a
+// log law: t(b) = 60/slope * ln (bpm(b)/bpm0). Its closed-form inverse keeps
+// beatsToSeconds/secondsToBeats exact inverses. Equal endpoint bpms (or no
+// next event) degrade to the constant-tempo segment.
+static bool rampActive (const std::vector<TempoMap::TempoEvent>& tempos, size_t i)
+{
+    return tempos[i].ramp && i + 1 < tempos.size()
+        && std::abs (tempos[i + 1].bpm - tempos[i].bpm) >= 1.0e-9
+        && tempos[i + 1].beat - tempos[i].beat >= 1.0e-9;
+}
+
 void TempoMap::rebuildAnchors()
 {
     tempoSecondsAnchors.resize (tempos.size());
@@ -38,7 +50,15 @@ void TempoMap::rebuildAnchors()
     tempoSecondsAnchors[0] = 0.0;
     for (size_t i = 1; i < tempos.size(); ++i)
     {
-        secs += (tempos[i].beat - tempos[i - 1].beat) * 60.0 / tempos[i - 1].bpm;
+        const auto& a = tempos[i - 1];
+        const auto& b = tempos[i];
+        if (rampActive (tempos, i - 1))
+        {
+            const double slope = (b.bpm - a.bpm) / (b.beat - a.beat);
+            secs += 60.0 / slope * std::log (b.bpm / a.bpm);
+        }
+        else
+            secs += (b.beat - a.beat) * 60.0 / a.bpm;
         tempoSecondsAnchors[i] = secs;
     }
 }
@@ -47,14 +67,30 @@ double TempoMap::beatsToSeconds (double beats) const noexcept
 {
     size_t i = tempos.size() - 1;
     while (i > 0 && tempos[i].beat > beats) --i;
-    return tempoSecondsAnchors[i] + (beats - tempos[i].beat) * 60.0 / tempos[i].bpm;
+    const auto& ev = tempos[i];
+    if (beats > ev.beat && rampActive (tempos, i))
+    {
+        const auto& nx = tempos[i + 1];
+        const double slope = (nx.bpm - ev.bpm) / (nx.beat - ev.beat);
+        const double bpmAt = ev.bpm + (beats - ev.beat) * slope;
+        return tempoSecondsAnchors[i] + 60.0 / slope * std::log (bpmAt / ev.bpm);
+    }
+    return tempoSecondsAnchors[i] + (beats - ev.beat) * 60.0 / ev.bpm;
 }
 
 double TempoMap::secondsToBeats (double seconds) const noexcept
 {
     size_t i = tempos.size() - 1;
     while (i > 0 && tempoSecondsAnchors[i] > seconds) --i;
-    return tempos[i].beat + (seconds - tempoSecondsAnchors[i]) * tempos[i].bpm / 60.0;
+    const auto& ev = tempos[i];
+    if (seconds > tempoSecondsAnchors[i] && rampActive (tempos, i))
+    {
+        const auto& nx = tempos[i + 1];
+        const double slope = (nx.bpm - ev.bpm) / (nx.beat - ev.beat);
+        const double bpmAt = ev.bpm * std::exp (slope * (seconds - tempoSecondsAnchors[i]) / 60.0);
+        return ev.beat + (bpmAt - ev.bpm) / slope;
+    }
+    return ev.beat + (seconds - tempoSecondsAnchors[i]) * ev.bpm / 60.0;
 }
 
 juce::int64 TempoMap::beatsToSamples (double beats) const noexcept
@@ -71,7 +107,14 @@ double TempoMap::bpmAtBeat (double beat) const noexcept
 {
     size_t i = tempos.size() - 1;
     while (i > 0 && tempos[i].beat > beat) --i;
-    return tempos[i].bpm;
+    const auto& ev = tempos[i];
+    if (beat > ev.beat && rampActive (tempos, i))
+    {
+        const auto& nx = tempos[i + 1];
+        const double u = juce::jlimit (0.0, 1.0, (beat - ev.beat) / (nx.beat - ev.beat));
+        return ev.bpm + (nx.bpm - ev.bpm) * u;
+    }
+    return ev.bpm;
 }
 
 TempoMap::SigEvent TempoMap::sigAtBeat (double beat) const noexcept

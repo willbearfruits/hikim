@@ -10,8 +10,8 @@ namespace dg
 class TempoMap
 {
 public:
-    struct TempoEvent { double beat;  double bpm; };           // beat = quarter notes from 0
-    struct SigEvent   { double beat;  int num; int den; };
+    struct TempoEvent { double beat;  double bpm; bool ramp = false; };   // beat = quarter notes from 0;
+    struct SigEvent   { double beat;  int num; int den; };                // ramp glides to the next event
 
     TempoMap (double sampleRate = 48000.0);
     TempoMap (const ValueTree& tempoMapTree, double sampleRate);

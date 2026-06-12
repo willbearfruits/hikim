@@ -31,8 +31,9 @@ namespace dg::id
     DG_ID (stretch)   DG_ID (stretchMode) DG_ID (fileSR)   // stretchMode: 0 varispeed, 1 pitch-locked
     DG_ID (loop)      DG_ID (loopLen)   // content loop: audio pass length in seconds (midi uses loopBeats)
 
-    // tempo map
+    // tempo map (ramp: bpm glides linearly-in-beats to the next event)
     DG_ID (beat)      DG_ID (bpm)       DG_ID (num)      DG_ID (den)
+    DG_ID (ramp)
 
     // notes
     DG_ID (pitch)     DG_ID (vel)       DG_ID (len)

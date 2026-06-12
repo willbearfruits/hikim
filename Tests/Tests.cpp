@@ -1127,6 +1127,83 @@ struct TapTempoTests : juce::UnitTest
     }
 };
 
+// =========================================================================== tempo ramps
+
+struct TempoRampTests : juce::UnitTest
+{
+    TempoRampTests() : UnitTest ("TempoRamps") {}
+
+    static ValueTree tempoEvent (double beat, double bpm, bool ramp)
+    {
+        ValueTree ev (id::TEMPO);
+        ev.setProperty (id::beat, beat, nullptr);
+        ev.setProperty (id::bpm, bpm, nullptr);
+        if (ramp) ev.setProperty (id::ramp, true, nullptr);
+        return ev;
+    }
+
+    void runTest() override
+    {
+        beginTest ("ramped segment follows the log law");
+        SessionModel s;                                          // default: 120 at beat 0
+        s.tempoMap().getChildWithName (id::TEMPO).setProperty (id::ramp, true, nullptr);
+        s.tempoMap().appendChild (tempoEvent (8.0, 240.0, false), nullptr);
+        TempoMap map (s.tempoMap(), 48000.0);
+        // slope 15 bpm/beat: t(8) = 60/15 * ln(240/120) = 4 ln 2
+        expectWithinAbsoluteError (map.beatsToSeconds (8.0), 4.0 * std::log (2.0), 1.0e-9);
+        expect (map.beatsToSeconds (8.0) < 4.0 && map.beatsToSeconds (8.0) > 2.0,
+                "between the constant-tempo extremes");
+
+        beginTest ("beatsToSeconds and secondsToBeats stay exact inverses");
+        for (const double b : { 0.0, 0.5, 1.0, 3.7, 7.99, 8.0, 8.5, 12.0, 64.0 })
+            expectWithinAbsoluteError (map.secondsToBeats (map.beatsToSeconds (b)), b, 1.0e-9);
+        for (const double t : { 0.0, 0.1, 1.0, 2.0, 2.7, 3.0, 10.0 })
+            expectWithinAbsoluteError (map.beatsToSeconds (map.secondsToBeats (t)), t, 1.0e-9);
+
+        beginTest ("bpm interpolates linearly across the ramp");
+        expectWithinAbsoluteError (map.bpmAtBeat (0.0), 120.0, 1.0e-9);
+        expectWithinAbsoluteError (map.bpmAtBeat (4.0), 180.0, 1.0e-9);
+        expectWithinAbsoluteError (map.bpmAtBeat (8.0), 240.0, 1.0e-9);
+        expectWithinAbsoluteError (map.bpmAtBeat (100.0), 240.0, 1.0e-9);
+
+        beginTest ("time keeps accumulating after the ramp");
+        // beats 8..12 at constant 240: one more second
+        expectWithinAbsoluteError (map.beatsToSeconds (12.0), 4.0 * std::log (2.0) + 1.0, 1.0e-9);
+
+        beginTest ("without the flag the old constant behaviour holds");
+        SessionModel s2;
+        s2.tempoMap().appendChild (tempoEvent (8.0, 240.0, false), nullptr);
+        TempoMap flat (s2.tempoMap(), 48000.0);
+        expectWithinAbsoluteError (flat.beatsToSeconds (8.0), 4.0, 1.0e-9);
+        expectWithinAbsoluteError (flat.bpmAtBeat (4.0), 120.0, 1.0e-9);
+
+        beginTest ("a ramp between equal bpms degrades to constant");
+        SessionModel s3;
+        s3.tempoMap().getChildWithName (id::TEMPO).setProperty (id::ramp, true, nullptr);
+        s3.tempoMap().appendChild (tempoEvent (8.0, 120.0, false), nullptr);
+        TempoMap same (s3.tempoMap(), 48000.0);
+        expectWithinAbsoluteError (same.beatsToSeconds (4.0), 2.0, 1.0e-9);
+        expectWithinAbsoluteError (same.secondsToBeats (2.0), 4.0, 1.0e-9);
+
+        beginTest ("a ramp on the last event is inert");
+        SessionModel s4;
+        s4.tempoMap().getChildWithName (id::TEMPO).setProperty (id::ramp, true, nullptr);
+        TempoMap lone (s4.tempoMap(), 48000.0);
+        expectWithinAbsoluteError (lone.beatsToSeconds (4.0), 2.0, 1.0e-9);
+        expectWithinAbsoluteError (lone.bpmAtBeat (16.0), 120.0, 1.0e-9);
+
+        beginTest ("decelerando ramps too");
+        SessionModel s5;
+        s5.tempoMap().getChildWithName (id::TEMPO).setProperty (id::ramp, true, nullptr);
+        s5.tempoMap().appendChild (tempoEvent (4.0, 60.0, false), nullptr);
+        TempoMap slow (s5.tempoMap(), 48000.0);
+        // slope -15: t(4) = 60/-15 * ln(60/120) = 4 ln 2
+        expectWithinAbsoluteError (slow.beatsToSeconds (4.0), 4.0 * std::log (2.0), 1.0e-9);
+        for (const double b : { 1.0, 2.0, 3.0, 4.0, 6.0 })
+            expectWithinAbsoluteError (slow.secondsToBeats (slow.beatsToSeconds (b)), b, 1.0e-9);
+    }
+};
+
 // ===========================================================================
 
 static TempoMapTests tempoMapTests;
@@ -1145,6 +1222,7 @@ static MidiLoopExpandTests midiLoopExpandTests;
 static CrossfadeHandleTests crossfadeHandleTests;
 static ChaosAutomationTests chaosAutomationTests;
 static TapTempoTests tapTempoTests;
+static TempoRampTests tempoRampTests;
 
 int main()
 {

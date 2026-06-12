@@ -49,13 +49,14 @@ public:
             beat = bb.barStartBeat + bb.num * 4.0 / bb.den;
         }
 
-        // tempo / timesig events
+        // tempo / timesig events (an arrow marks a ramp to the next event)
         g.setFont (juce::Font (juce::FontOptions (9.0f)));
         for (const auto& ev : map->getTempos())
         {
             const int x = (int) tv.timeToX (map->beatsToSeconds (ev.beat)) + xOff;
             g.setColour (col::accent2);
-            g.drawText (String (ev.bpm, 1), x + 2, 1, 50, 10, juce::Justification::left);
+            g.drawText (String (ev.bpm, 1) + (ev.ramp ? juce::String::fromUTF8 ("\xe2\x86\x97") : String()),
+                        x + 2, 1, 56, 10, juce::Justification::left);
         }
 
         // markers
@@ -116,6 +117,7 @@ public:
         m.addItem (3, "Clear loop");
         m.addSeparator();
         m.addItem (4, "Insert tempo change here...");
+        m.addItem (7, "Ramp tempo to next event", true, rampAtSec (sec));
         m.addItem (5, "Insert time signature here...");
         m.addSeparator();
         m.addItem (6, "Delete nearest marker");
@@ -129,6 +131,7 @@ public:
             {
                 auto* w = new juce::AlertWindow ("Tempo change", "BPM at " + map->formatBarsBeats (tv.engine.secToSamples (sec)), juce::MessageBoxIconType::NoIcon);
                 w->addTextEditor ("bpm", String (map->bpmAtBeat (map->secondsToBeats (sec)), 1));
+                w->addComboBox ("ramp", { "hold until next", "ramp to next" }, "then");
                 w->addButton ("OK", 1); w->addButton ("Cancel", 0);
                 w->enterModalState (true, juce::ModalCallbackFunction::create ([this, sec, w] (int res)
                 {
@@ -138,9 +141,20 @@ public:
                         ValueTree ev (id::TEMPO);
                         ev.setProperty (id::beat, std::round (map2->secondsToBeats (sec)), nullptr);
                         ev.setProperty (id::bpm, juce::jlimit (10.0, 999.0, w->getTextEditorContents ("bpm").getDoubleValue()), nullptr);
+                        if (w->getComboBoxComponent ("ramp")->getSelectedItemIndex() == 1)
+                            ev.setProperty (id::ramp, true, nullptr);
                         tv.session.tempoMap().appendChild (ev, &tv.session.undo);
                     }
                 }), true);
+            }
+            else if (r == 7)
+            {
+                auto evT = governingTempoEvent (sec);
+                if (evT.isValid())
+                {
+                    tv.session.undo.beginNewTransaction ("tempo ramp");
+                    evT.setProperty (id::ramp, ! (bool) evT.getProperty (id::ramp, false), &tv.session.undo);
+                }
             }
             else if (r == 5)
             {
@@ -180,6 +194,27 @@ public:
             }
             repaint();
         });
+    }
+
+    // the TEMPO tree child governing this time (last at or before it)
+    ValueTree governingTempoEvent (double sec) const
+    {
+        const double beat = tv.engine.getTempoMap()->secondsToBeats (sec);
+        ValueTree best;
+        double bestBeat = -1.0;
+        for (auto c : tv.session.tempoMap())
+            if (c.hasType (id::TEMPO))
+            {
+                const double b = c[id::beat];
+                if (b <= beat + 1.0e-9 && b > bestBeat) { bestBeat = b; best = c; }
+            }
+        return best;
+    }
+
+    bool rampAtSec (double sec) const
+    {
+        auto ev = governingTempoEvent (sec);
+        return ev.isValid() && (bool) ev.getProperty (id::ramp, false);
     }
 
 private:
