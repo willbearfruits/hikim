@@ -1,7 +1,9 @@
 #pragma once
 #include "Session.h"
 #include "../Engine/TempoMap.h"
+#include <functional>
 #include <set>
+#include <vector>
 
 namespace dg::clipops
 {
@@ -35,4 +37,27 @@ namespace dg::clipops
     // the transaction its mouseDown opened.
     void slip (SessionModel&, const TempoMap&, const std::set<String>& uids,
                double deltaSec, bool newTransaction = true);
+
+    // Crossfade handles. A partial tail/head overlap between two audible
+    // audio clips is what the engine auto-crossfades (equal power); these
+    // find and edit that overlap as a first-class object.
+    struct Overlap
+    {
+        ValueTree left, right;            // invalid when none
+        double start = 0, end = 0;        // overlap region in seconds
+        bool isValid() const { return left.isValid() && right.isValid(); }
+    };
+    Overlap overlapAt (ValueTree track, double timeSec);        // overlap containing timeSec
+    std::vector<Overlap> overlapsOf (ValueTree clip);           // every overlap this clip is part of
+
+    // Roll the comp boundary: the left clip's end and the right clip's start
+    // move together (overlap length preserved, right content stays anchored
+    // in time). Returns the applied (clamped) delta.
+    double rollBoundary (SessionModel&, ValueTree left, ValueTree right,
+                         double deltaSec, bool newTransaction = true);
+
+    // Symmetrically resize the overlap about its centre (alt-drag on the
+    // handle). Returns the applied (clamped) overlap length.
+    double resizeOverlap (SessionModel&, ValueTree left, ValueTree right,
+                          double newOverlapSec, bool newTransaction = true);
 }

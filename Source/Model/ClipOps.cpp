@@ -251,4 +251,131 @@ juce::StringArray duplicate (SessionModel& session, const std::set<String>& uids
     return newUids;
 }
 
+// ---- crossfade handles ------------------------------------------------------
+
+static bool audibleAudio (const ValueTree& c)
+{
+    return (int) c.getProperty (id::lane, 0) == 0 && c[id::type].toString() == "audio";
+}
+
+// a's tail against b's head - the shape applyCompCrossfades fades
+static bool partialOverlap (const ValueTree& a, const ValueTree& b)
+{
+    const double aS = a[id::start], aE = aS + (double) a[id::length];
+    const double bS = b[id::start], bE = bS + (double) b[id::length];
+    return bS > aS && bS < aE && bE > aE;
+}
+
+Overlap overlapAt (ValueTree track, double timeSec)
+{
+    auto clips = SessionModel::clipsOf (track);
+    for (auto a : clips)
+    {
+        if (! audibleAudio (a)) continue;
+        for (auto b : clips)
+        {
+            if (b == a || ! audibleAudio (b) || ! partialOverlap (a, b)) continue;
+            const double s = b[id::start], e = (double) a[id::start] + (double) a[id::length];
+            if (timeSec >= s && timeSec <= e)
+                return { a, b, s, e };
+        }
+    }
+    return {};
+}
+
+std::vector<Overlap> overlapsOf (ValueTree clip)
+{
+    std::vector<Overlap> out;
+    auto clips = clip.getParent();
+    if (! clips.isValid() || ! audibleAudio (clip)) return out;
+    for (auto other : clips)
+    {
+        if (other == clip || ! audibleAudio (other)) continue;
+        if (partialOverlap (clip, other))
+            out.push_back ({ clip, other, (double) other[id::start],
+                             (double) clip[id::start] + (double) clip[id::length] });
+        if (partialOverlap (other, clip))
+            out.push_back ({ other, clip, (double) clip[id::start],
+                             (double) other[id::start] + (double) other[id::length] });
+    }
+    return out;
+}
+
+// Move an audio clip's content reference when its start shifts by dSec
+// (loop-aware: a looping clip wraps its pass phase instead).
+static void shiftStartContent (SessionModel& session, ValueTree clip, double dSec)
+{
+    if (clip[id::type].toString() != "audio") return;
+    const double fileSR = clip.getProperty (id::fileSR, 48000.0);
+    const double stretch = clip.getProperty (id::stretch, 1.0);
+    double d = dSec;
+    const double passSec = (double) clip.getProperty (id::loopLen, 0.0);
+    if ((bool) clip.getProperty (id::loop, false) && passSec > 1.0e-4)
+    {
+        d = std::fmod (d, passSec);
+        if (d < 0) d += passSec;
+    }
+    clip.setProperty (id::offset,
+                      juce::jmax (0.0, (double) clip[id::offset] + d * fileSR / stretch),
+                      &session.undo);
+}
+
+// How far a clip's start may move earlier before its source runs out
+// (non-looping audio only; a looping clip wraps and is unconstrained).
+static double minStartShift (const ValueTree& clip)
+{
+    if (clip[id::type].toString() != "audio") return -1.0e18;
+    if ((bool) clip.getProperty (id::loop, false)) return -1.0e18;
+    const double fileSR = clip.getProperty (id::fileSR, 48000.0);
+    const double stretch = clip.getProperty (id::stretch, 1.0);
+    return -(double) clip[id::offset] * stretch / fileSR;
+}
+
+double rollBoundary (SessionModel& session, ValueTree left, ValueTree right,
+                     double deltaSec, bool newTransaction)
+{
+    if (! left.isValid() || ! right.isValid()) return 0.0;
+    const double lS = left[id::start],  lL = left[id::length];
+    const double rS = right[id::start], rL = right[id::length];
+    const double overlap = lS + lL - rS;
+
+    double d = deltaSec;
+    d = juce::jmax (d, 0.05 - lL);                       // left keeps a body
+    d = juce::jmax (d, lS - rS + 0.001);                 // stays a partial overlap...
+    d = juce::jmin (d, rL - juce::jmax (0.05, overlap + 0.001));   // ...on both sides
+    d = juce::jmax (d, minStartShift (right));           // right content can't pre-date its file
+    if (std::abs (d) < 1.0e-9) return 0.0;
+
+    if (newTransaction) session.undo.beginNewTransaction ("roll crossfade");
+    left.setProperty  (id::length, lL + d, &session.undo);
+    right.setProperty (id::start,  rS + d, &session.undo);
+    right.setProperty (id::length, rL - d, &session.undo);
+    shiftStartContent (session, right, d);               // content stays anchored in time
+    return d;
+}
+
+double resizeOverlap (SessionModel& session, ValueTree left, ValueTree right,
+                      double newOverlapSec, bool newTransaction)
+{
+    if (! left.isValid() || ! right.isValid()) return 0.0;
+    const double lS = left[id::start],  lL = left[id::length], lE = lS + lL;
+    const double rS = right[id::start], rL = right[id::length], rE = rS + rL;
+    const double centre = (rS + lE) * 0.5;
+
+    double ov = juce::jmax (0.0, newOverlapSec);
+    ov = juce::jmin (ov, 2.0 * (centre - lS) - 0.05);    // right.start stays after left.start
+    ov = juce::jmin (ov, 2.0 * (rE - centre) - 0.05);    // left.end stays before right.end
+    const double minShift = minStartShift (right);       // right.start earlier needs source
+    ov = juce::jmin (ov, 2.0 * (centre - rS - minShift));
+    ov = juce::jmax (ov, 0.0);
+
+    const double dR = (centre - ov * 0.5) - rS;
+    if (newTransaction) session.undo.beginNewTransaction ("resize crossfade");
+    left.setProperty  (id::length, (centre + ov * 0.5) - lS, &session.undo);
+    right.setProperty (id::start,  rS + dR, &session.undo);
+    right.setProperty (id::length, rL - dR, &session.undo);
+    shiftStartContent (session, right, dR);
+    return ov;
+}
+
 } // namespace dg::clipops

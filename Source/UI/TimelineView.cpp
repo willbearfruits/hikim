@@ -328,6 +328,35 @@ public:
             g.fillPath (p);
         }
 
+        // comp crossfades: equal-power curve over each partial overlap, with
+        // a draggable boundary handle (drag rolls the edit; alt-drag resizes)
+        for (const auto& ov : clipops::overlapsOf (clip))
+        {
+            const double cS = (double) clip[id::start];
+            const float x0 = (float) ((ov.start - cS) * tv.pps);
+            const float x1 = (float) ((ov.end - cS) * tv.pps);
+            if (x1 - x0 < 1.0f) continue;
+            const float h = (float) getHeight();
+            const bool fadingOut = ov.left == clip;
+            juce::Path p;
+            for (int i = 0; i <= 16; ++i)
+            {
+                const float u = (float) i / 16.0f;
+                const float gain = fadingOut ? std::sqrt (1.0f - u) : std::sqrt (u);
+                const float x = x0 + u * (x1 - x0);
+                const float y = (1.0f - gain) * (h - 2.0f) + 1.0f;
+                if (i == 0) p.startNewSubPath (x, y); else p.lineTo (x, y);
+            }
+            g.setColour (col::accent2.withAlpha (0.85f));
+            g.strokePath (p, juce::PathStrokeType (1.3f));
+
+            const float hx = (x0 + x1) * 0.5f;
+            juce::Path d;
+            d.addQuadrilateral (hx, 2.0f, hx + 4.5f, 7.0f, hx, 12.0f, hx - 4.5f, 7.0f);
+            g.setColour (col::accent2);
+            g.fillPath (d);
+        }
+
         g.setColour (juce::Colours::white.withAlpha (0.85f));
         g.setFont (juce::Font (juce::FontOptions (10.0f)));
         g.drawText (clip[id::name].toString()
@@ -336,7 +365,7 @@ public:
                     4, 1, getWidth() - 8, 11, juce::Justification::left);
     }
 
-    enum class Mode { none, move, trimL, trimR, fadeL, fadeR, slip };
+    enum class Mode { none, move, trimL, trimR, fadeL, fadeR, slip, xfadeRoll, xfadeSize };
 
     void mouseDown (const juce::MouseEvent& e) override
     {
@@ -370,7 +399,15 @@ public:
         origOffset = clip[id::offset];
         slipApplied = 0.0;
         const int w = getWidth();
-        if (e.mods.isCommandDown()) mode = Mode::slip;      // ctrl/cmd-drag: slide content
+        xfade = clipops::overlapAt (track, tv.xToTime (getX() + e.x));
+        if (xfade.isValid() && e.y < 14
+            && std::abs ((double) e.x - ((xfade.start + xfade.end) * 0.5 - origStart) * tv.pps) <= 8.0)
+        {
+            mode = e.mods.isAltDown() ? Mode::xfadeSize : Mode::xfadeRoll;
+            xfadeApplied = 0.0;
+            origOverlap = xfade.end - xfade.start;
+        }
+        else if (e.mods.isCommandDown()) mode = Mode::slip; // ctrl/cmd-drag: slide content
         else if (e.y < 14 && e.x < juce::jmin (24, w / 3)) mode = Mode::fadeL;
         else if (e.y < 14 && e.x > w - juce::jmin (24, w / 3)) mode = Mode::fadeR;
         else if (e.x < 7) mode = Mode::trimL;
@@ -434,11 +471,22 @@ public:
             clip.setProperty (id::length, juce::jmax (0.05, tv.snap (origStart + origLen + dx) - origStart), &undo);
         else if (mode == Mode::slip)
         {
-            const double total = tv.xToTime (e.getDistanceFromDragStartX());
             clipops::slip (tv.session, *tv.engine.getTempoMap(), { clip[id::uid].toString() },
-                           total - slipApplied, false);     // coalesces into this drag's transaction
-            slipApplied = total;
+                           dx - slipApplied, false);        // coalesces into this drag's transaction
+            slipApplied = dx;
             repaint();
+        }
+        else if (mode == Mode::xfadeRoll)
+        {
+            xfadeApplied += clipops::rollBoundary (tv.session, xfade.left, xfade.right,
+                                                   dx - xfadeApplied, false);
+            getParentComponent()->repaint();
+        }
+        else if (mode == Mode::xfadeSize)
+        {
+            clipops::resizeOverlap (tv.session, xfade.left, xfade.right,
+                                    origOverlap + dx * 2.0, false);
+            getParentComponent()->repaint();
         }
         else if (mode == Mode::fadeL)
             clip.setProperty (id::fadeIn, juce::jlimit (0.0, (double) clip[id::length], (double) e.x / tv.pps), &undo);
@@ -604,6 +652,13 @@ public:
     {
         if (tv.ui.tool == Tool::razor)  { setMouseCursor (juce::MouseCursor::IBeamCursor); return; }
         if (tv.ui.tool == Tool::erase)  { setMouseCursor (juce::MouseCursor::CrosshairCursor); return; }
+        if (e.y < 14)
+        {
+            auto ovh = clipops::overlapAt (track, tv.xToTime (getX() + e.x));
+            if (ovh.isValid()
+                && std::abs ((double) e.x - ((ovh.start + ovh.end) * 0.5 - (double) clip[id::start]) * tv.pps) <= 8.0)
+            { setMouseCursor (juce::MouseCursor::LeftRightResizeCursor); return; }
+        }
         if (e.mods.isCommandDown())     { setMouseCursor (juce::MouseCursor::DraggingHandCursor); return; }
         const int w = getWidth();
         if (e.x < 7 || e.x > w - 7)
@@ -622,6 +677,8 @@ private:
     Mode mode = Mode::none;
     double origStart = 0, origLen = 0, origOffset = 0;
     double slipApplied = 0.0;             // slip delta already written during this drag
+    clipops::Overlap xfade;               // overlap being dragged
+    double xfadeApplied = 0.0, origOverlap = 0.0;
     bool duplicated = false;
     std::unique_ptr<juce::AudioThumbnail> thumb;
 };

@@ -886,6 +886,80 @@ struct MidiLoopExpandTests : juce::UnitTest
     }
 };
 
+// =========================================================================== crossfade handles
+
+struct CrossfadeHandleTests : juce::UnitTest
+{
+    CrossfadeHandleTests() : UnitTest ("CrossfadeHandles") {}
+    void runTest() override
+    {
+        beginTest ("overlapAt finds the partial tail/head overlap only");
+        SessionModel s;
+        auto track = s.addTrack ("audio", "T");
+        auto a = addTestClip (s, track, 0.0, 2.0);
+        auto b = addTestClip (s, track, 1.5, 2.0);              // overlap [1.5, 2.0]
+        auto ov = clipops::overlapAt (track, 1.75);
+        expect (ov.isValid());
+        expect (ov.left == a && ov.right == b);
+        expectWithinAbsoluteError (ov.start, 1.5, 1.0e-12);
+        expectWithinAbsoluteError (ov.end, 2.0, 1.0e-12);
+        expect (! clipops::overlapAt (track, 0.5).isValid());   // outside the overlap
+
+        beginTest ("containment is not a crossfade");
+        SessionModel s2;
+        auto tr2 = s2.addTrack ("audio", "T");
+        addTestClip (s2, tr2, 0.0, 10.0);
+        addTestClip (s2, tr2, 2.0, 1.0);                        // contained: layered, not faded
+        expect (! clipops::overlapAt (tr2, 2.5).isValid());
+
+        beginTest ("overlapsOf reports both sides");
+        expectEquals ((int) clipops::overlapsOf (a).size(), 1);
+        expectEquals ((int) clipops::overlapsOf (b).size(), 1);
+        expect (clipops::overlapsOf (b)[0].left == a);
+
+        beginTest ("rollBoundary slides the edit point, content stays anchored");
+        const double applied = clipops::rollBoundary (s, a, b, 0.25);
+        expectWithinAbsoluteError (applied, 0.25, 1.0e-12);
+        expectWithinAbsoluteError ((double) a[id::length], 2.25, 1.0e-9);
+        expectWithinAbsoluteError ((double) b[id::start], 1.75, 1.0e-9);
+        expectWithinAbsoluteError ((double) b[id::length], 1.75, 1.0e-9);   // far end fixed at 3.5
+        expectWithinAbsoluteError ((double) b[id::offset], 0.25 * 48000.0, 1.0);
+        auto ov2 = clipops::overlapAt (track, 1.9);
+        expect (ov2.isValid());
+        expectWithinAbsoluteError (ov2.end - ov2.start, 0.5, 1.0e-9);       // overlap preserved
+
+        beginTest ("rollBoundary clamps where the right clip's source starts");
+        const double back = clipops::rollBoundary (s, a, b, -2.0);          // offset is 0.25 s worth
+        expectWithinAbsoluteError (back, -0.25, 1.0e-9);
+        expectWithinAbsoluteError ((double) b[id::offset], 0.0, 1.0e-6);
+
+        beginTest ("rollBoundary undoes in one step");
+        const double beforeLen = a[id::length];
+        clipops::rollBoundary (s, a, b, 0.1);
+        s.undo.undo();
+        expectWithinAbsoluteError ((double) a[id::length], beforeLen, 1.0e-12);
+
+        beginTest ("resizeOverlap grows symmetrically about the centre");
+        SessionModel s3;
+        auto tr3 = s3.addTrack ("audio", "T");
+        auto a3 = addTestClip (s3, tr3, 0.0, 2.0);
+        auto b3 = addTestClip (s3, tr3, 1.5, 2.0);
+        b3.setProperty (id::offset, 48000.0, nullptr);          // room to reveal earlier source
+        const double got = clipops::resizeOverlap (s3, a3, b3, 1.0);   // centre 1.75
+        expectWithinAbsoluteError (got, 1.0, 1.0e-12);
+        expectWithinAbsoluteError ((double) a3[id::length], 2.25, 1.0e-9);  // ends at 2.25
+        expectWithinAbsoluteError ((double) b3[id::start], 1.25, 1.0e-9);
+        expectWithinAbsoluteError ((double) b3[id::length], 2.25, 1.0e-9);  // far end fixed at 3.5
+        expectWithinAbsoluteError ((double) b3[id::offset], 36000.0, 1.0);  // revealed 0.25 s
+
+        beginTest ("resizeOverlap to zero butts the clips");
+        const double zero = clipops::resizeOverlap (s3, a3, b3, 0.0);
+        expectWithinAbsoluteError (zero, 0.0, 1.0e-12);
+        expectWithinAbsoluteError ((double) a3[id::start] + (double) a3[id::length],
+                                   (double) b3[id::start], 1.0e-9);
+    }
+};
+
 // ===========================================================================
 
 static TempoMapTests tempoMapTests;
@@ -901,6 +975,7 @@ static StretchTests stretchTests;
 static ClipLoopSlipTests clipLoopSlipTests;
 static LoopedRenderTests loopedRenderTests;
 static MidiLoopExpandTests midiLoopExpandTests;
+static CrossfadeHandleTests crossfadeHandleTests;
 
 int main()
 {
