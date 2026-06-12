@@ -527,6 +527,48 @@ struct PatcherTests : juce::UnitTest
         juce::AudioBuffer<float> b10 (2, 256);
         for (int k = 0; k < 8; ++k) { b10.clear(); p10.processBlock (b10, midi); }
         expect (std::abs (p10.modOut (0)) < 1.0e-6f, "no playhead, bpm 0");
+
+        beginTest ("master~ writes the patch signal into its inject ring");
+        PatcherProcessor p11;
+        p11.setPlayConfigDetails (2, 2, 48000.0, 256);
+        auto sigM = p11.addNode ("sig 0.5", 0, 0);
+        auto masN = p11.addNode ("master~", 0, 0);
+        p11.addCable (sigM[id::uid].toString(), 0, masN[id::uid].toString(), 0);
+        p11.prepareToPlay (48000.0, 256);
+        expectEquals ((int) p11.getInjectRings().size(), 1);
+        juce::AudioBuffer<float> b11 (2, 256);
+        b11.clear();
+        p11.processBlock (b11, midi);
+        auto ringOut = p11.getInjectRings()[0];
+        expectEquals ((int) ringOut->wTotal.load(), 256);
+        std::vector<float> cl (256, 0.0f), cr (256, 0.0f);
+        ringOut->consumeAdd (cl.data(), cr.data(), 256);
+        expect (std::abs (cl[100] - 0.5f) < 1.0e-6f && std::abs (cr[100] - 0.5f) < 1.0e-6f,
+                "ring carries the signal, mono mirrored");
+
+        beginTest ("master strip consumes inject rings, then runs dry");
+        ChannelStripProcessor mstrip ("M");
+        mstrip.setPlayConfigDetails (2, 2, 48000.0, 256);
+        mstrip.prepareToPlay (48000.0, 256);
+        auto ring2 = std::make_shared<InjectRing>();
+        auto ilist = std::make_shared<ChannelStripProcessor::InjectList>();
+        ilist->push_back (ring2);
+        mstrip.setInjects (ilist);
+        juce::AudioBuffer<float> sb (2, 256);
+        std::vector<float> quarters (256, 0.25f);
+        float lastSample = 0.0f;
+        for (int k = 0; k < 12; ++k)            // smoother needs a few blocks to land
+        {
+            ring2->write (quarters.data(), quarters.data(), 256);
+            sb.clear();
+            mstrip.processBlock (sb, midi);
+            lastSample = sb.getSample (0, 200);
+        }
+        expect (std::abs (lastSample - 0.25f) < 1.0e-3f,
+                "injection passes the master strip: " + String (lastSample));
+        sb.clear();
+        mstrip.processBlock (sb, midi);         // nothing written this block
+        expect (sb.getMagnitude (0, 0, 256) < 1.0e-6f, "dry ring is silent");
     }
 };
 

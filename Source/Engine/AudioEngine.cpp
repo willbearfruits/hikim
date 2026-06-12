@@ -885,7 +885,9 @@ void AudioEngine::rebuildMods()
     auto modsTree = session.mods();
     auto next = std::make_shared<ModRTState>();
 
-    // WIRES modout taps become live mod sources (ids "wires:<insertUid>:<n>")
+    // WIRES modout taps become live mod sources (ids "wires:<insertUid>:<n>");
+    // master~ rings are gathered for the master strip in the same sweep
+    auto injectList = std::make_shared<ChannelStripProcessor::InjectList>();
     for (const auto& t : session.tracks())
         for (const auto& ins : SessionModel::insertsOf (t))
         {
@@ -894,6 +896,9 @@ void AudioEngine::rebuildMods()
             auto* pp = dynamic_cast<PatcherProcessor*> (node->second->getProcessor());
             if (pp == nullptr) continue;
             pp->onModOutsChanged = [this] { scheduleRebuild (rebuild::mods); };
+            pp->onInjectsChanged = [this] { scheduleRebuild (rebuild::mods); };
+            for (auto& r : pp->getInjectRings())
+                injectList->push_back (r);
             // chan~/strip refs re-resolve here after every rebuild (strips may be new)
             pp->setChanTapProvider ([this] (const String& ref, bool pre)
                 -> std::shared_ptr<ChanTap>
@@ -916,6 +921,8 @@ void AudioEngine::rebuildMods()
                                              "wires:" + ins[id::uid].toString() + ":" + String (i),
                                              t[id::name].toString() + " WIRES " + String (i + 1) });
         }
+    if (auto* ms = getStrip ("master"))
+        ms->setInjects (std::move (injectList));
 
     for (int i = 0; i < 4; ++i)
     {

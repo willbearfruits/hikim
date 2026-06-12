@@ -23,7 +23,7 @@ public:
     {
         oAdc, oDac, oOsc, oPhasor, oNoise, oLfo, oMul, oAdd, oLores, oHipass,
         oDelay, oTanh, oSah, oEnv, oMetro, oRandom, oScale, oSig, oParam,
-        oOscIn, oOscOut, oModOut, oNumber, oChan, oStrip, oClock, oUnknown
+        oOscIn, oOscOut, oModOut, oNumber, oChan, oStrip, oClock, oMaster, oUnknown
     };
     // NODES.md object families (palette sections + box/cable colours)
     enum Family { famSource, famEffect, famMath, famTime, famRouting };
@@ -94,6 +94,18 @@ public:
     using StripCtlProvider = std::function<std::shared_ptr<StripControl> (const String& ref)>;
     void setStripCtlProvider (StripCtlProvider f) { stripCtlProvider = std::move (f); compile(); }
 
+    // ---- master~: rings this patch injects into the master bus. Rings are
+    // stable per node uid across recompiles, so the set only changes when
+    // master~ objects are added/removed — that's when onInjectsChanged fires
+    // (the engine re-gathers; firing per compile would loop the rebuild).
+    std::vector<std::shared_ptr<InjectRing>> getInjectRings() const
+    {
+        std::vector<std::shared_ptr<InjectRing>> v;
+        for (const auto& [uid, ring] : injectRings) v.push_back (ring);
+        return v;
+    }
+    std::function<void()> onInjectsChanged;
+
 private:
     struct PObj
     {
@@ -109,6 +121,7 @@ private:
         std::shared_ptr<std::atomic<float>> ext;     // oscin value / oscout tap
         std::shared_ptr<ChanTap> tap;                // chan~ source ring
         std::shared_ptr<StripControl> ctl;           // strip target
+        std::shared_ptr<InjectRing> inj;             // master~ ring
         std::atomic<float>* hostParam = nullptr;
         int modIdx = -1;                             // modout slot
     };
@@ -141,6 +154,7 @@ private:
     ChanTapProvider chanTapProvider;
     StripCtlProvider stripCtlProvider;
     std::map<String, std::shared_ptr<ChanTap>> chanTaps;                // node uid -> resolved ring
+    std::map<String, std::shared_ptr<InjectRing>> injectRings;          // node uid -> master~ ring
 
     double sampleRate = 48000.0;
     int blockSize = 512;

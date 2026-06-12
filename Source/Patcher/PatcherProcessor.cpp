@@ -37,6 +37,7 @@ const std::vector<PatcherProcessor::Spec>& PatcherProcessor::specs()
         { "oscout", oOscOut, 1, 0, "127.0.0.1 57120 /ruin/out", "OSC send (host, port, /addr)", famRouting, "n", "" },
         { "modout", oModOut, 1, 0, "", "signal -> mod source in the PATCH bay", famRouting, "s", "" },
         { "strip", oStrip, 3, 3, "1", "drive a channel: gain dB, pan, mute (track#/name)", famRouting, "nnn", "nnn" },
+        { "master~", oMaster, 2, 0, "", "send straight to the master bus", famRouting, "ss", "" },
     };
     return s;
 }
@@ -136,6 +137,8 @@ void PatcherProcessor::compile()
     auto prog = std::make_shared<Program>();
     prog->sr = sampleRate;
     chanTaps.clear();
+    bool injectsChanged = false;
+    std::set<String> injectSeen;
 
     struct NodeInfo { ValueTree tree; int objIdx = -1; int outBuf[4] = { -1, -1, -1, -1 }; };
     std::map<String, NodeInfo> nodes;
@@ -255,10 +258,26 @@ void PatcherProcessor::compile()
                 o.ctl = stripCtlProvider != nullptr
                             ? stripCtlProvider (args.size() > 0 ? args[0] : "1") : nullptr;
                 break;
+            case oMaster:
+            {
+                auto& ring = injectRings[uid];      // stable per node across recompiles
+                if (ring == nullptr) { ring = std::make_shared<InjectRing>(); injectsChanged = true; }
+                injectSeen.insert (uid);
+                o.inj = ring;
+                break;
+            }
             default: break;
         }
         prog->objs.push_back (std::move (o));
     }
+
+    for (auto it = injectRings.begin(); it != injectRings.end();)
+    {
+        if (! injectSeen.count (it->first)) { it = injectRings.erase (it); injectsChanged = true; }
+        else ++it;
+    }
+    if (injectsChanged && onInjectsChanged != nullptr)
+        onInjectsChanged();             // master~ set changed: engine re-gathers
 
     if (numModOuts.exchange (modOutSeen) != modOutSeen && onModOutsChanged != nullptr)
         onModOutsChanged();             // message thread: compile runs via AsyncUpdater
@@ -439,6 +458,11 @@ void PatcherProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
                 }
                 break;
             }
+
+            case oMaster:   // write into the ring the master strip consumes
+                if (o.inj != nullptr && (i0 != nullptr || i1 != nullptr))
+                    o.inj->write (i0 != nullptr ? i0 : i1, i1, n);
+                break;
 
             case oClock:    // transport as numbers: bpm, beat phase, bar phase, bar #
             {

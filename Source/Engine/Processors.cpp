@@ -25,6 +25,13 @@ void ChannelStripProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
 {
     const int n = buffer.getNumSamples();
 
+    // master~ rings land pre-fader, pre-tap (so the master fader rides them)
+    if (const auto* inj = injects.load())
+        for (const auto& ring : *inj)
+            ring->consumeAdd (buffer.getWritePointer (0),
+                              buffer.getNumChannels() > 1 ? buffer.getWritePointer (1) : nullptr,
+                              n);
+
     // WIRES `strip` seizure: fresh stamps override the params, stale ones release
     const int stamp = control->blockStamp.fetch_add (1) + 1;
     auto fresh = [stamp] (const std::atomic<int>& s) { return stamp - s.load() <= 1; };

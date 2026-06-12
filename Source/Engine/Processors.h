@@ -61,7 +61,21 @@ public:
     // WIRES `strip` drives gain/pan/mute through here while its stamps stay fresh
     std::shared_ptr<StripControl> control = std::make_shared<StripControl>();
 
+    // WIRES master~ rings, consumed pre-fader (the master strip only). The
+    // message thread swaps the list and parks the old ones in injKeep so the
+    // audio thread only ever dereferences — it never copies or frees.
+    using InjectList = std::vector<std::shared_ptr<InjectRing>>;
+    void setInjects (std::shared_ptr<const InjectList> v)
+    {
+        injKeep[(size_t) (injKeepIdx++ & 31)] = v;
+        injects.store (v != nullptr && v->empty() ? nullptr : v.get());
+    }
+
 private:
+    std::atomic<const InjectList*> injects { nullptr };
+    std::shared_ptr<const InjectList> injKeep[32];
+    int injKeepIdx = 0;
+
     juce::SmoothedValue<float> smGainL, smGainR;
 };
 

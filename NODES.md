@@ -97,9 +97,13 @@ devices.
   - landed: number box; TouchDesigner zoom/pan + box LOD (chip/mid/full);
     family palette with typed ports/cables in WIRES; `chan~` (pre/post strip
     taps over a published ring - graph cycles are illegal, taps are how
-    feedback routing works; live meter face at every LOD)
+    feedback routing works; live meter face at every LOD); `strip` (seize
+    gain/pan/mute by stamp-freshness - release = stop patching); `clock`
+    (transport at number rate); `master~` (destructive-read inject rings,
+    consumed pre-fader by the master strip)
   - remaining: the same palette/canvas serving PATCHER-mode and the PATCH
-    bay, `strip`/`master~` as objects (strip edits = session edits, same undo)
+    bay (design conversation first - it decides where session-undo patching
+    lands); `scene` launch events ride with it
 - **E2** `sample~` / instruments-as-nodes / `poly` + `mux`/`matrix~`
 - **E3** the `#` family + `screen#`
 - **E4** multichannel cables + preset morphing
