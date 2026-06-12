@@ -644,6 +644,47 @@ struct PatcherTests : juce::UnitTest
                 b14.setSample (ch, i, 0.5f);
         p14.processBlock (b14, midi);
         expect (b14.getMagnitude (0, 0, 256) < 1.0e-9f, "no buffer, no sound");
+
+        beginTest ("grain~ clouds the shared buffer, bounded and finite");
+        auto pad = std::make_shared<SampleBuf>();
+        pad->sr = 48000.0;
+        pad->buf.setSize (2, 4800);
+        for (int i = 0; i < 4800; ++i)
+        {
+            pad->buf.setSample (0, i, 0.5f);
+            pad->buf.setSample (1, i, 0.5f);
+        }
+        PatcherProcessor p15;
+        p15.setPlayConfigDetails (2, 2, 48000.0, 256);
+        p15.setSampleProvider ([pad] (const String&)
+                               -> std::shared_ptr<const SampleBuf> { return pad; });
+        auto grnN = p15.addNode ("grain~ 40", 0, 0);
+        grnN.setProperty (id::file, "x", nullptr);
+        auto posN = p15.addNode ("sig 0.5", 0, 0);
+        ValueTree dac15;
+        for (const auto& n : p15.patch)
+            if (n[id::type].toString() == "dac~") dac15 = n;
+        p15.addCable (posN[id::uid].toString(), 0, grnN[id::uid].toString(), 0);
+        p15.addCable (grnN[id::uid].toString(), 0, dac15[id::uid].toString(), 0);
+        p15.addCable (grnN[id::uid].toString(), 1, dac15[id::uid].toString(), 1);
+        p15.prepareToPlay (48000.0, 256);
+        juce::AudioBuffer<float> b15 (2, 256);
+        float cloudPeak = 0.0f;
+        bool finite = true;
+        for (int k = 0; k < 40 && finite; ++k)      // ~0.2s: default 25 hz density fills in
+        {
+            b15.clear();
+            p15.processBlock (b15, midi);
+            for (int i = 0; i < 256 && finite; ++i)
+            {
+                const float v = b15.getSample (0, i);
+                finite = std::isfinite (v);
+                cloudPeak = juce::jmax (cloudPeak, std::abs (v));
+            }
+        }
+        expect (finite, "grain sum stays finite");
+        expect (cloudPeak > 0.01f && cloudPeak < 8.0f,
+                "cloud is audible and bounded: " + String (cloudPeak));
     }
 };
 

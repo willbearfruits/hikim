@@ -122,8 +122,10 @@ devices.
 - **E2** `sample~` / instruments-as-nodes / `poly` + `mux`/`matrix~`
   - landed: `sample~` (drop audio from FILES/OS onto the canvas; trig/rate/pos
     ports, loop arg, reverse via negative rate, waveform face; engine loads
-    through createAnyReader into a path-keyed cache of immutable buffers)
-  - next: `grain~`/`slot~` over the same buffers, mux/demux/gate~, `matrix~`,
+    through createAnyReader into a path-keyed cache of immutable buffers);
+    `grain~` (24-voice Hann cloud over the same buffers - pos/pitch/density
+    ports, size arg, pos jitter + pan spray)
+  - next: `slot~` over the same buffers, mux/demux/gate~, `matrix~`,
     instruments-as-nodes, `poly`, `scene`
 - **E3** the `#` family + `screen#`
 - **E4** multichannel cables + preset morphing

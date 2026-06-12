@@ -24,7 +24,7 @@ public:
         oAdc, oDac, oOsc, oPhasor, oNoise, oLfo, oMul, oAdd, oLores, oHipass,
         oDelay, oTanh, oSah, oEnv, oMetro, oRandom, oScale, oSig, oParam,
         oOscIn, oOscOut, oModOut, oNumber, oChan, oStrip, oClock, oMaster,
-        oSample, oUnknown
+        oSample, oGrain, oUnknown
     };
     // NODES.md object families (palette sections + box/cable colours)
     enum Family { famSource, famEffect, famMath, famTime, famRouting };
@@ -133,8 +133,11 @@ private:
         std::shared_ptr<ChanTap> tap;                // chan~ source ring
         std::shared_ptr<StripControl> ctl;           // strip target
         std::shared_ptr<InjectRing> inj;             // master~ ring
-        std::shared_ptr<const SampleBuf> smp;        // sample~ buffer
+        std::shared_ptr<const SampleBuf> smp;        // sample~ / grain~ buffer
         bool sampleLoop = false, samplePlaying = false;
+        struct Grain { double pos = 0, inc = 0; int remain = 0, dur = 1; float gl = 0, gr = 0; };
+        std::vector<Grain> grains;                   // grain~ voice pool
+        double spawnAcc = 0;
         std::atomic<float>* hostParam = nullptr;
         int modIdx = -1;                             // modout slot
     };

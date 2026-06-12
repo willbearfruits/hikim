@@ -15,6 +15,7 @@ const std::vector<PatcherProcessor::Spec>& PatcherProcessor::specs()
         { "dac~", oDac, 2, 0, "", "to the track output", famSource, "ss", "" },
         { "chan~", oChan, 0, 2, "1", "tap any channel (track#/name, 'pre')", famSource, "", "ss" },
         { "sample~", oSample, 3, 2, "", "buffer player (trig, rate, pos 0-1) - drop audio onto it", famSource, "esn", "ss" },
+        { "grain~", oGrain, 3, 2, "90", "grain cloud (pos 0-1, pitch, density hz; arg = size ms)", famSource, "nsn", "ss" },
         { "osc~", oOsc, 1, 1, "220", "sine osc (freq)", famSource, "s", "s" },
         { "phasor~", oPhasor, 1, 1, "2", "ramp 0..1 (freq)", famSource, "s", "s" },
         { "noise~", oNoise, 0, 1, "", "white noise", famSource, "", "s" },
@@ -269,6 +270,7 @@ void PatcherProcessor::compile()
                 break;
             }
             case oSample:
+            case oGrain:
             {
                 const String path = n[id::file].toString();
                 o.smp = (sampleProvider != nullptr && path.isNotEmpty()) ? sampleProvider (path) : nullptr;
@@ -276,6 +278,8 @@ void PatcherProcessor::compile()
                 o.sampleLoop = n[kArgs].toString().containsIgnoreCase ("loop");
                 // loop free-runs; an unconnected trig inlet means play-on-load
                 o.samplePlaying = o.smp != nullptr && (o.sampleLoop || o.in0 < 0);
+                if (o.type == oGrain)
+                    o.grains.assign (24, {});
                 break;
             }
             default: break;
@@ -516,6 +520,63 @@ void PatcherProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
                     }
                     if (out0) out0[i] = l;
                     if (out1) out1[i] = r;
+                }
+                break;
+            }
+
+            case oGrain:    // grain cloud over the shared buffer (Hann windows, pan spray)
+            {
+                if (out0 == nullptr && out1 == nullptr) break;
+                if (out0) juce::FloatVectorOperations::clear (out0, n);
+                if (out1) juce::FloatVectorOperations::clear (out1, n);
+                if (o.smp == nullptr || o.smp->buf.getNumSamples() < 2) break;
+
+                const float* i2 = o.in2 >= 0 ? bufs.getReadPointer (o.in2) : nullptr;
+                const auto& gbuf = o.smp->buf;
+                const float* sl = gbuf.getReadPointer (0);
+                const float* srr = gbuf.getReadPointer (gbuf.getNumChannels() > 1 ? 1 : 0);
+                const double len = (double) gbuf.getNumSamples() - 1.0;
+                const double srRatio = o.smp->sr / sr;
+                const int sizeSmp = juce::jlimit (32, (int) (2.0 * sr),
+                                                  (int) ((o.a <= 0.0f ? 90.0 : (double) o.a) * 0.001 * sr));
+                for (int i = 0; i < n; ++i)
+                {
+                    const double density = juce::jlimit (0.0, 400.0, i2 ? (double) i2[i] : 25.0);
+                    o.spawnAcc += density / sr;
+                    if (o.spawnAcc >= 1.0)              // birth a grain on a free voice
+                    {
+                        o.spawnAcc -= 1.0;
+                        for (auto& gr : o.grains)
+                            if (gr.remain <= 0)
+                            {
+                                const double pos = juce::jlimit (0.0, 1.0, i0 ? (double) i0[i] : 0.0);
+                                const double jit = (o.rng.nextDouble() - 0.5) * 0.08;
+                                gr.pos = juce::jlimit (0.0, len, (pos + jit) * len);
+                                const double pitch = juce::jlimit (-4.0, 4.0, i1 ? (double) i1[i] : 1.0);
+                                gr.inc = pitch * srRatio;
+                                gr.dur = gr.remain = sizeSmp;
+                                const float pan = o.rng.nextFloat() * 0.7f - 0.35f;
+                                gr.gl = 1.0f - juce::jmax (0.0f, pan);
+                                gr.gr = 1.0f + juce::jmin (0.0f, pan);
+                                break;
+                            }
+                    }
+                    float l = 0.0f, r = 0.0f;
+                    for (auto& gr : o.grains)
+                    {
+                        if (gr.remain <= 0) continue;
+                        const double ph = (double) (gr.dur - gr.remain) / (double) gr.dur;
+                        const float w = 0.5f - 0.5f * (float) std::cos (ph * juce::MathConstants<double>::twoPi);
+                        const int idx = (int) gr.pos;
+                        const float frac = (float) (gr.pos - idx);
+                        l += (sl[idx] + (sl[idx + 1] - sl[idx]) * frac) * w * gr.gl;
+                        r += (srr[idx] + (srr[idx + 1] - srr[idx]) * frac) * w * gr.gr;
+                        gr.pos += gr.inc;
+                        if (gr.pos < 0.0 || gr.pos >= len) gr.remain = 0;
+                        else --gr.remain;
+                    }
+                    if (out0) out0[i] = l * 0.5f;       // ~24-voice cloud headroom
+                    if (out1) out1[i] = r * 0.5f;
                 }
                 break;
             }

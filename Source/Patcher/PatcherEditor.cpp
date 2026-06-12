@@ -59,7 +59,7 @@ public:
     {
         const String type = node[id::type];
         isNumber = type == "number";
-        isSample = type == "sample~";
+        isSample = type == "sample~" || type == "grain~";   // both wear the waveform face
         setSize (isNumber ? 86 : isSample ? 150 : 110, isSample ? 58 : 40);
     }
 
@@ -591,14 +591,16 @@ void PatcherEditor::dropAudioFile (const String& path, juce::Point<int> posInEdi
 {
     const auto cpos = canvas->getLocalPoint (this, posInEditor);
 
-    // dropped on an existing sample~: just swap its buffer
+    // dropped on an existing sample~/grain~: just swap its buffer
     for (auto* nc : nodeComps)
-        if (nc->node[id::type].toString() == "sample~"
-            && nc->getBounds().contains (cpos))
+    {
+        const String t = nc->node[id::type].toString();
+        if ((t == "sample~" || t == "grain~") && nc->getBounds().contains (cpos))
         {
             nc->node.setProperty (id::file, path, nullptr);
             return;
         }
+    }
 
     auto n = patcher.addNode ("sample~ loop", juce::jmax (4, cpos.x), juce::jmax (4, cpos.y));
     if (n.isValid())
