@@ -48,7 +48,7 @@ private:
     double divPhase = 0, freePpq = 0;
     bool repeating = false;
     int capStart = 0, repIndex = 0;
-    double chunkPos = 0, readFrac = 0;
+    double chunkPos = 0, readFrac = 0, readInc = 1.0;
     float repGain = 1.0f, repMix = 0.0f;       // engage/release crossfade (declick)
 };
 

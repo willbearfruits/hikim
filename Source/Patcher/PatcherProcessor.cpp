@@ -204,7 +204,7 @@ void PatcherProcessor::compile()
         switch (o.type)
         {
             case oDelay:
-                o.line.assign ((size_t) juce::jmax (256, (int) (sampleRate * 2.0)), 0.0f);
+                o.line.assign ((size_t) juce::nextPowerOfTwo (juce::jmax (256, (int) (sampleRate * 2.0))), 0.0f);   // pow2: mask instead of % per sample
                 break;
             case oParam:
                 o.b = (float) (juce::jlimit (1, 8, (int) o.a) - 1);   // stash P index
@@ -447,12 +447,13 @@ void PatcherProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
                 if (out0)
                 {
                     const int len = (int) o.line.size();
+                    const int lm = len - 1;                     // line is pow2-sized
                     for (int i = 0; i < n; ++i)
                     {
                         const double ms = i1 ? juce::jmax (0.0f, i1[i]) : o.a;
                         int d = (int) (ms * 0.001 * sr);
                         d = juce::jlimit (n, len - 1, d);       // feedback-safe minimum
-                        out0[i] = o.line[(size_t) ((o.wp + i - d + len) % len)];
+                        out0[i] = o.line[(size_t) ((o.wp + i - d + len) & lm)];
                     }
                 }
                 break;
@@ -558,13 +559,14 @@ void PatcherProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
         if (o.type == oDelay)
         {
             const int len = (int) o.line.size();
+            const int lm = len - 1;                             // line is pow2-sized
             const float* i0 = o.in0 >= 0 ? bufs.getReadPointer (o.in0) : nullptr;
             const float fb = juce::jlimit (0.0f, 0.95f, o.b);
             float* out0 = bp (o.out0);
             for (int i = 0; i < n; ++i)
-                o.line[(size_t) ((o.wp + i) % len)] =
+                o.line[(size_t) ((o.wp + i) & lm)] =
                     (i0 ? i0[i] : 0.0f) + (out0 != nullptr ? out0[i] * fb : 0.0f);
-            o.wp = (o.wp + n) % len;
+            o.wp = (o.wp + n) & lm;
         }
 
     // dac~: replace host audio; patches without dac~ stay transparent

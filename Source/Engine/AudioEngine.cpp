@@ -1658,7 +1658,8 @@ void AudioEngine::renderMetronome (juce::AudioBuffer<float>& buf, const TempoMap
             for (int ch = 0; ch < juce::jmin (2, buf.getNumChannels()); ++ch)
                 buf.addSample (ch, i, s);
         }
-        // EXTEND: carry click tails across blocks (currently truncated at block end)
+        if (c.env > 0.0005f)
+            c.active = 1;               // tail continues at sample 0 of the next block
     }
 }
 
@@ -1704,7 +1705,17 @@ void AudioEngine::launchSlot (ValueTree track, ValueTree clip)
         auto* src = dynamic_cast<ClipPlayerProcessor*> (tn.source->getProcessor());
         if (src == nullptr) return;
 
-        const File f = mediaFileFor (File (clip[id::file].toString()));
+        // exotic formats need an ffmpeg transcode that can take seconds -
+        // never block the message thread for it; cook in the background and
+        // relaunch this slot when the cache is ready
+        const File rawFile (clip[id::file].toString());
+        if (! mediaReadyNow (rawFile))
+        {
+            bridgeSlotAsync (track, clip);
+            return;
+        }
+
+        const File f = mediaFileFor (rawFile);
         const String cuid = clip[id::uid];
         std::shared_ptr<juce::AudioFormatReader> reader;
         auto cached = readerCache.find (cuid);
@@ -1871,13 +1882,87 @@ void AudioEngine::applySessionActions (juce::int64 pos)
 
 // ============================================================ media bridge
 
+void AudioEngine::bridgeSlotAsync (ValueTree track, ValueTree clip)
+{
+    const File src (clip[id::file].toString());
+    const String key = bridgeKeyFor (src);
+    const File cached = transcodeCacheFor (key);
+    const String uid = track[id::uid].toString();
+
+    // show the slot as pending while ffmpeg cooks; a re-launch while pending is a no-op
+    auto& st = sessUI[uid];
+    st.pending = clip[id::uid].toString();
+    st.pendingStop = false;
+    st.when = nextLaunchBoundary();
+    if (pendingBridges.count (key)) return;
+    pendingBridges.insert (key);
+
+    juce::Thread::launch ([this, track, clip, src, cached, key, uid]
+    {
+        const bool ok = runFfmpegTranscode (src, cached);
+        juce::MessageManager::callAsync ([this, track, clip, cached, key, uid, ok]
+        {
+            pendingBridges.erase (key);
+            if (ok)
+            {
+                bridgeCache[key] = cached.getFullPathName();
+                launchSlot (track, clip);            // cache hit now: instant
+            }
+            else
+                sessUI.erase (uid);                  // stop the pending blink; import path reports decode failures
+        });
+    });
+}
+
+String AudioEngine::bridgeKeyFor (const File& src)
+{
+    return src.getFullPathName() + "|" + String (src.getLastModificationTime().toMilliseconds());
+}
+
+File AudioEngine::transcodeCacheFor (const String& key)
+{
+    auto dir = File::getSpecialLocation (File::tempDirectory)
+                   .getChildFile (String (names::appName) + "-transcode");
+    dir.createDirectory();
+    return dir.getChildFile (String::toHexString (key.hashCode64()) + ".wav");
+}
+
+bool AudioEngine::runFfmpegTranscode (const File& src, const File& dest)
+{
+    if (dest.existsAsFile()) return true;
+    juce::ChildProcess proc;
+    const juce::StringArray args { "ffmpeg", "-y", "-loglevel", "error",
+                                   "-i", src.getFullPathName(),
+                                   "-vn", "-acodec", "pcm_f32le",
+                                   dest.getFullPathName() };
+    const bool ok = proc.start (args)
+                    && proc.waitForProcessToFinish (180000)
+                    && proc.getExitCode() == 0
+                    && dest.getSize() > 64;
+    if (! ok) dest.deleteFile();
+    return ok;
+}
+
+bool AudioEngine::mediaReadyNow (const File& src)
+{
+    if (! src.existsAsFile()) return true;          // let the caller's open fail and report
+    const String key = bridgeKeyFor (src);
+    if (bridgeCache.count (key)) return true;
+    {
+        std::unique_ptr<juce::AudioFormatReader> probe (formatManager.createReaderFor (src));
+        if (probe != nullptr) { bridgeCache[key] = src.getFullPathName(); return true; }
+    }
+    const File cached = transcodeCacheFor (key);
+    if (cached.existsAsFile()) { bridgeCache[key] = cached.getFullPathName(); return true; }
+    return false;                                   // would need a blocking ffmpeg transcode
+}
+
 File AudioEngine::mediaFileFor (const File& src)
 {
     if (! src.existsAsFile())
         return src;
 
-    const String key = src.getFullPathName() + "|"
-                     + String (src.getLastModificationTime().toMilliseconds());
+    const String key = bridgeKeyFor (src);
     auto hit = bridgeCache.find (key);
     if (hit != bridgeCache.end())
         return File (hit->second);
@@ -1891,30 +1976,10 @@ File AudioEngine::mediaFileFor (const File& src)
         }
     }
 
-    // ffmpeg fallback: transcode once into a temp cache, reuse forever.
-    // EXTEND: background transcode with a placeholder clip for very long files.
-    auto dir = File::getSpecialLocation (File::tempDirectory)
-                   .getChildFile (String (names::appName) + "-transcode");
-    dir.createDirectory();
-    const File cached = dir.getChildFile (String::toHexString (key.hashCode64()) + ".wav");
-
-    if (! cached.existsAsFile())
-    {
-        juce::ChildProcess proc;
-        const juce::StringArray args { "ffmpeg", "-y", "-loglevel", "error",
-                                       "-i", src.getFullPathName(),
-                                       "-vn", "-acodec", "pcm_f32le",
-                                       cached.getFullPathName() };
-        const bool ok = proc.start (args)
-                        && proc.waitForProcessToFinish (180000)
-                        && proc.getExitCode() == 0
-                        && cached.getSize() > 64;
-        if (! ok)
-        {
-            cached.deleteFile();
-            return src;          // caller's reader open fails and reports
-        }
-    }
+    // ffmpeg fallback: transcode once into a temp cache, reuse forever
+    const File cached = transcodeCacheFor (key);
+    if (! runFfmpegTranscode (src, cached))
+        return src;              // caller's reader open fails and reports
     bridgeCache[key] = cached.getFullPathName();
     return cached;
 }

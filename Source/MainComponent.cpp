@@ -6,7 +6,7 @@ namespace dg
 MainComponent::MainComponent()
 {
     juce::PropertiesFile::Options opts;
-    opts.applicationName = "dawglitch";
+    opts.applicationName = "hikim";
     opts.folderName = "characterglitch";
     opts.filenameSuffix = ".settings";
     opts.osxLibrarySubFolder = "Application Support";

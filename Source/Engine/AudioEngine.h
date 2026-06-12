@@ -106,6 +106,7 @@ public:
     // built-in decoder opens it, otherwise a cached one-time ffmpeg transcode.
     File mediaFileFor (const File& source);
     std::unique_ptr<juce::AudioFormatReader> createAnyReader (const File& source);
+    bool mediaReadyNow (const File& source);        // false = would block on an ffmpeg transcode
 
     // ---- file preview (FILES bin) ----
     void startPreview (const File&);
@@ -224,9 +225,14 @@ private:
     juce::int64 nextLaunchBoundary();
     void applySessionActions (juce::int64 pos);             // audio thread
     void scheduleSessionAction (SessionAction);
+    void bridgeSlotAsync (ValueTree track, ValueTree clip); // ffmpeg in background, then relaunch
+    static String bridgeKeyFor (const File& src);
+    static File transcodeCacheFor (const String& key);
+    static bool runFfmpegTranscode (const File& src, const File& dest);
     juce::SpinLock sessActLock;
     std::vector<SessionAction> sessActions;
     std::map<String, SessUIState> sessUI;                   // message thread only
+    std::set<String> pendingBridges;                        // message thread only
 
     // ---- recording ----
     void createRecordSessions();

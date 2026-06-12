@@ -7,6 +7,16 @@ static constexpr double kDivBeats[] = { 1.0, 2.0 / 3.0, 0.5, 1.0 / 3.0, 0.75, 0.
 static constexpr double kGateBeats[] = { 1.0, 0.5, 0.25, 0.125 };
 static constexpr int kGridSizes[] = { 4, 8, 16, 32 };
 
+// raised-cosine window, built at load so no per-sample cos and no init lock
+// in the audio path (grains index it by age/len)
+static const std::array<float, 1025> kHann = []
+{
+    std::array<float, 1025> t {};
+    for (size_t i = 0; i < t.size(); ++i)
+        t[i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / 1024.0f);
+    return t;
+}();
+
 // ===================================================================== 1 beat repeat
 
 BeatRepeatModule::BeatRepeatModule (juce::AudioProcessorValueTreeState& s) : RackModule (s)
@@ -37,6 +47,7 @@ void BeatRepeatModule::process (juce::AudioBuffer<float>& buf, const ModuleConte
     const float chance = pChance->load();
     const float decay = pDecay->load();
     const double pitchRate = std::pow (2.0, pPitch->load() / 12.0);
+    readInc = std::pow (pitchRate, (double) repIndex);   // hoisted: updated again on repeat/chunk edges only
 
     float* l = buf.getWritePointer (0);
     float* r = buf.getWritePointer (juce::jmin (1, buf.getNumChannels() - 1));
@@ -62,7 +73,7 @@ void BeatRepeatModule::process (juce::AudioBuffer<float>& buf, const ModuleConte
             {
                 repeating = true;
                 capStart = (wp - (int) divLen) & mask;
-                repIndex = 0; chunkPos = 0; readFrac = 0; repGain = 1.0f;
+                repIndex = 0; chunkPos = 0; readFrac = 0; repGain = 1.0f; readInc = 1.0;
             }
             else
                 repeating = false;
@@ -77,6 +88,7 @@ void BeatRepeatModule::process (juce::AudioBuffer<float>& buf, const ModuleConte
             {
                 chunkPos = 0; readFrac = 0; ++repIndex;
                 repGain *= juce::jmax (0.05f, decay);
+                readInc *= pitchRate;
             }
             const int rp = (capStart + (int) readFrac) & mask;
             const float eg = (float) juce::jmax (0.0, juce::jmin (1.0, chunkPos / edgeFade,
@@ -84,7 +96,7 @@ void BeatRepeatModule::process (juce::AudioBuffer<float>& buf, const ModuleConte
             const float g = repGain * eg;
             l[i] += repMix * (rl[rp] * g - l[i]);
             r[i] += repMix * (rr[rp] * g - r[i]);
-            readFrac += std::pow (pitchRate, (double) repIndex);
+            readFrac += readInc;
             chunkPos += 1.0;
         }
         wp = (wp + 1) & mask;
@@ -239,7 +251,7 @@ void GranularModule::process (juce::AudioBuffer<float>& buf, const ModuleContext
         for (auto& g : grains)
         {
             if (! g.active) continue;
-            const float w = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) g.age / (float) g.len);
+            const float w = kHann[(size_t) ((juce::int64) g.age * 1024 / juce::jmax (1, g.len))];
             const int p0 = ((int) g.pos) & mask;
             l[i] += rl[p0] * w * g.gain;
             r[i] += rr[p0] * w * g.gain;
