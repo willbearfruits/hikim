@@ -1,4 +1,4 @@
-# RUIN — roadmap
+# HIKIM — roadmap
 
 Direction stays fixed: creative destruction, performable damage, clean path pristine.
 Everything below serves one of the two poles — the breakcore/glitch side or the bare
@@ -61,22 +61,22 @@ sentimental side — or the machinery both stand on.
    MIDI; "extract groove" from the slices to a swing template. The breakcore core
    workflow: chop the amen, resequence it in the piano roll, then feed it TEETH.
 3. **Clip launcher (session grid)** — quantized scene/loop launching for live sets,
-   recording the jam into the arrangement. RUIN as a performance instrument.
+   recording the jam into the arrangement. HIKIM as a performance instrument.
 4. **Live RT RubberBand** — pitch-locked stretch playable in realtime (the render
    cache stays for quality; live mode makes stretch a knob you can ride).
    Plus mod-matrix depth: more chaos sources (logistic map, drunk walk), per-cable
    lag/curve, MIDI-note and velocity as sources.
 
-## Identity moves (only RUIN would do these)
+## Identity moves (only HIKIM would do these)
 
 - **Wear** — opt-in: every bounce pass adds a breath of tape age; a project setting
   where the session accumulates patina each save. The file remembers being touched.
 - **Chaos automation** — "generate" menu on automation lanes: attractor curves,
   drunk walks, decaying ratchets. Automation drawn by the same math as the canvas pieces.
 - **ASCII scope** — a character-only oscilloscope/spectrogram window (every visible
-  cell a typed character). The one place RUIN meets characterglitch on screen.
+  cell a typed character). The one place HIKIM meets characterglitch on screen.
 - **OSC bridge** — OSC in/out mapped to params/macros/transport; sclang as an external
-  corruption brain, or RUIN driving the browser pieces in sync.
+  corruption brain, or HIKIM driving the browser pieces in sync.
 - **Hold-to-destroy** — momentary key/MIDI mappings: TEETH modules engage only while
   held. Destruction as a played articulation, not a state.
 - **Stems → grainfield** — one-click stem export as `.ogg` sets shaped for the

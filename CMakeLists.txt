@@ -27,11 +27,11 @@ else()
 endif()
 
 juce_add_gui_app(dawglitch
-    PRODUCT_NAME "RUIN"
+    PRODUCT_NAME "HIKIM"
     COMPANY_NAME "characterglitch"
     BUNDLE_ID com.characterglitch.dawglitch
     MICROPHONE_PERMISSION_ENABLED TRUE
-    MICROPHONE_PERMISSION_TEXT "RUIN records audio."
+    MICROPHONE_PERMISSION_TEXT "HIKIM records audio."
     DOCUMENT_EXTENSIONS dgproj
     NEEDS_CURL FALSE
     NEEDS_WEB_BROWSER FALSE)

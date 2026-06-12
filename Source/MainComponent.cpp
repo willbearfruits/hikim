@@ -165,7 +165,7 @@ void MainComponent::HelpOverlay::paint (juce::Graphics& g)
     auto inner = r.reduced (26);
     g.setColour (col::accent);
     g.setFont (juce::Font (juce::FontOptions (24.0f, juce::Font::bold)));
-    g.drawText ("RUIN - how to drive it", inner.removeFromTop (34), juce::Justification::left);
+    g.drawText (String (names::appName) + " - how to drive it", inner.removeFromTop (34), juce::Justification::left);
     g.setColour (col::dim);
     g.setFont (juce::Font (juce::FontOptions (12.0f)));
     g.drawText ("click anywhere to close  -  ? or F1 brings this back", inner.removeFromTop (22), juce::Justification::left);

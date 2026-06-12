@@ -4,12 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-RUIN: a cross-platform experimental DAW (JUCE 8, C++20, CMake) built around *creative
+HIKIM: a cross-platform experimental DAW (JUCE 8, C++20, CMake) built around *creative
 destruction* — the TEETH corruption rack and the WIRES patcher are the identity features,
 and the clean signal path must stay pristine unless the user opts in. This is a JUCE
 desktop app; the parent repo's character-only-art rules (canvas pieces) do **not** apply here.
 
-Names live in one place: `Source/Common.h` (`dg::names::appName` = RUIN, `rackName` = TEETH,
+Names live in one place: `Source/Common.h` (`dg::names::appName` = HIKIM, `rackName` = TEETH,
 `patcherName` = WIRES) plus `PRODUCT_NAME` in `CMakeLists.txt`.
 
 ## Commands
@@ -17,7 +17,7 @@ Names live in one place: `Source/Common.h` (`dg::names::appName` = RUIN, `rackNa
 ```sh
 cmake -B build -DCMAKE_BUILD_TYPE=Release      # JUCE: -DJUCE_SOURCE_DIR, ./JUCE, /opt/JUCE, else FetchContent 8.0.13
 cmake --build build -j$(nproc)                 # builds app + tests
-./build/dawglitch_artefacts/Release/RUIN       # run the app
+./build/dawglitch_artefacts/Release/HIKIM       # run the app
 ./build/ruin_tests_artefacts/Release/ruin_tests   # headless suite (~30s); exits non-zero on failure
 ```
 

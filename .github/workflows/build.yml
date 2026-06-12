@@ -1,0 +1,51 @@
+name: build-hikim
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libasound2-dev libjack-jackd2-dev \
+            libfreetype-dev libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
+            libxinerama-dev libxrandr-dev libxrender-dev libfontconfig1-dev
+      - name: configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+      - name: build
+        run: cmake --build build -j4
+      - name: test
+        run: ./build/ruin_tests_artefacts/Release/ruin_tests
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HIKIM-linux-x86_64
+          path: build/dawglitch_artefacts/Release/HIKIM
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: configure
+        run: cmake -B build
+      - name: build
+        run: cmake --build build --config Release -j4
+      - name: test
+        run: .\build\ruin_tests_artefacts\Release\ruin_tests.exe
+      - name: portable zip
+        run: Compress-Archive -Path build\dawglitch_artefacts\Release\HIKIM.exe, README.md -DestinationPath HIKIM-windows-portable.zip
+      - name: installer
+        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer\hikim.iss'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HIKIM-windows-portable
+          path: HIKIM-windows-portable.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HIKIM-windows-installer
+          path: installer/Output/HIKIM-setup.exe

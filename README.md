@@ -1,4 +1,4 @@
-# RUIN
+# HIKIM
 
 A cross-platform experimental DAW (JUCE 8 / C++20) built around one idea: **creative destruction**.
 Damage, corruption and breakage are generative, intentional, and performable — never accidental,
@@ -23,7 +23,7 @@ sudo apt install build-essential cmake libasound2-dev libjack-jackd2-dev \
     libxinerama-dev libxrandr-dev libxrender-dev libfontconfig1-dev
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
-./build/dawglitch_artefacts/Release/"RUIN"
+./build/dawglitch_artefacts/Release/"HIKIM"
 ```
 
 ### macOS
@@ -31,7 +31,7 @@ cmake --build build -j$(nproc)
 ```sh
 cmake -B build -DCMAKE_BUILD_TYPE=Release -G Xcode   # or default generator
 cmake --build build --config Release -j
-open "build/dawglitch_artefacts/Release/RUIN.app"
+open "build/dawglitch_artefacts/Release/HIKIM.app"
 ```
 
 AU hosting is enabled automatically on macOS (plus VST3 and LV2).
@@ -41,7 +41,7 @@ AU hosting is enabled automatically on macOS (plus VST3 and LV2).
 ```sh
 cmake -B build -G "Visual Studio 17 2022"
 cmake --build build --config Release
-build\dawglitch_artefacts\Release\RUIN.exe
+build\dawglitch_artefacts\Release\HIKIM.exe
 ```
 
 ASIO: drop the Steinberg ASIO SDK in and enable `JUCE_ASIO=1` in `CMakeLists.txt`
@@ -108,7 +108,7 @@ ASIO: drop the Steinberg ASIO SDK in and enable `JUCE_ASIO=1` in `CMakeLists.txt
 
 ## Naming
 
-The app is **RUIN**; the corruption rack is **TEETH**. Both are set in one place if you
+The app is **HIKIM**; the corruption rack is **TEETH**. Both are set in one place if you
 ever want different names: `Source/Common.h` → `dg::names::appName` / `rackName`
 (plus `PRODUCT_NAME` in `CMakeLists.txt`).
 

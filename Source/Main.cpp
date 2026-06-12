@@ -62,12 +62,31 @@ public:
         {
             const auto trace = juce::SystemStats::getStackBacktrace();
             juce::File::getSpecialLocation (juce::File::tempDirectory)
-                .getChildFile ("ruin-crash.log")
+                .getChildFile (juce::String (names::appName).toLowerCase() + "-crash.log")
                 .replaceWithText (juce::Time::getCurrentTime().toString (true, true) + "\n" + trace);
-            std::cerr << "RUIN crashed:\n" << trace << std::endl;
+            std::cerr << names::appName << " crashed:\n" << trace << std::endl;
         });
 
         juce::LookAndFeel::setDefaultLookAndFeel (&Look::get());
+
+        // the whole point of the splash screen
+        {
+            juce::Image img (juce::Image::ARGB, 720, 400, true);
+            juce::Graphics g (img);
+            g.fillAll (juce::Colour (0xff0d0d0d));
+            g.setColour (juce::Colour (0xff333333));
+            g.drawRect (img.getBounds(), 2);
+            g.setColour (juce::Colour (0xffe04040));
+            g.setFont (juce::Font (juce::FontOptions (110.0f, juce::Font::bold)));
+            g.drawText ("HI KIM!", img.getBounds().withTrimmedBottom (60), juce::Justification::centred);
+            g.setColour (juce::Colour (0xff808080));
+            g.setFont (juce::Font (juce::FontOptions (16.0f)));
+            g.drawText ("this is HIKIM - break things beautifully  (press ? inside)",
+                        img.getBounds().removeFromBottom (110), juce::Justification::centredTop);
+            auto* splash = new juce::SplashScreen (names::appName, img, true);
+            splash->deleteAfterDelay (juce::RelativeTime::seconds (2.5), true);
+        }
+
         window = std::make_unique<MainWindow>();
     }
 
