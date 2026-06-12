@@ -17,6 +17,8 @@ void ChannelStripProcessor::prepareToPlay (double sr, int)
 {
     smGainL.reset (sr, 0.02);
     smGainR.reset (sr, 0.02);
+    tapPre->clear();
+    tapPost->clear();
 }
 
 void ChannelStripProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -32,6 +34,8 @@ void ChannelStripProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
     float* r = buffer.getNumChannels() > 1 ? buffer.getWritePointer (1) : nullptr;
     float pkL = 0.0f, pkR = 0.0f;
 
+    tapPre->write (l, r, n);                    // chan~ pre-fader point
+
     for (int i = 0; i < n; ++i)
     {
         l[i] *= smGainL.getNextValue();
@@ -44,6 +48,8 @@ void ChannelStripProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
     }
     peakL.store (juce::jmax (peakL.load() * 0.75f, pkL));
     peakR.store (juce::jmax (peakR.load() * 0.75f, r != nullptr ? pkR : pkL));
+
+    tapPost->write (l, r, n);                   // chan~ post-fader point
 }
 
 SendProcessor::SendProcessor (const String& name) : BasicProcessor (name)

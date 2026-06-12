@@ -1,5 +1,6 @@
 #pragma once
 #include "../Model/Ids.h"
+#include "Taps.h"
 
 namespace dg
 {
@@ -53,6 +54,10 @@ public:
     std::atomic<bool>  soloMuted { false };     // set by engine from global solo state
     std::atomic<bool>  forceMute { false };     // used by the stem renderer
     std::atomic<float> peakL { 0.0f }, peakR { 0.0f };
+
+    // published every block for WIRES chan~ (shared so patch programs outlive rebuilds)
+    std::shared_ptr<ChanTap> tapPre  = std::make_shared<ChanTap>();
+    std::shared_ptr<ChanTap> tapPost = std::make_shared<ChanTap>();
 
 private:
     juce::SmoothedValue<float> smGainL, smGainR;

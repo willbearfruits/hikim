@@ -879,6 +879,26 @@ void AudioEngine::rebuildMods()
             auto* pp = dynamic_cast<PatcherProcessor*> (node->second->getProcessor());
             if (pp == nullptr) continue;
             pp->onModOutsChanged = [this] { scheduleRebuild (rebuild::mods); };
+            // chan~ refs re-resolve here after every rebuild (strips may be new)
+            pp->setChanTapProvider ([this] (const String& ref, bool pre)
+                -> std::shared_ptr<ChanTap>
+            {
+                const int wanted = ref.getIntValue();        // numeric = 1-based track #
+                int idx = 0;
+                for (const auto& t : session.tracks())
+                {
+                    if (t[id::type].toString() == "video") continue;
+                    ++idx;
+                    if (wanted > 0 ? idx == wanted
+                                   : t[id::name].toString().equalsIgnoreCase (ref))
+                    {
+                        if (auto* st = getStrip (t[id::uid].toString()))
+                            return pre ? st->tapPre : st->tapPost;
+                        return nullptr;
+                    }
+                }
+                return nullptr;
+            });
             for (int i = 0; i < pp->getNumModOuts(); ++i)
                 next->patchSrcs.push_back ({ pp, i, node->second,
                                              "wires:" + ins[id::uid].toString() + ":" + String (i),

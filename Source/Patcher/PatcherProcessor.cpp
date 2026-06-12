@@ -13,6 +13,7 @@ const std::vector<PatcherProcessor::Spec>& PatcherProcessor::specs()
     static const std::vector<Spec> s = {
         { "adc~", oAdc, 0, 2, "", "track audio in (L R)", famSource, "", "ss" },
         { "dac~", oDac, 2, 0, "", "to the track output", famSource, "ss", "" },
+        { "chan~", oChan, 0, 2, "1", "tap any channel (track#/name, 'pre')", famSource, "", "ss" },
         { "osc~", oOsc, 1, 1, "220", "sine osc (freq)", famSource, "s", "s" },
         { "phasor~", oPhasor, 1, 1, "2", "ramp 0..1 (freq)", famSource, "s", "s" },
         { "noise~", oNoise, 0, 1, "", "white noise", famSource, "", "s" },
@@ -132,6 +133,7 @@ void PatcherProcessor::compile()
 {
     auto prog = std::make_shared<Program>();
     prog->sr = sampleRate;
+    chanTaps.clear();
 
     struct NodeInfo { ValueTree tree; int objIdx = -1; int outBuf[2] = { -1, -1 }; };
     std::map<String, NodeInfo> nodes;
@@ -233,6 +235,14 @@ void PatcherProcessor::compile()
             case oNumber:
                 o.ext = numberValueFor (uid, o.a);   // shared with the editor face
                 break;
+            case oChan:
+            {
+                const String ref = args.size() > 0 ? args[0] : "1";
+                const bool pre = args.size() > 1 && args[1].equalsIgnoreCase ("pre");
+                o.tap = chanTapProvider != nullptr ? chanTapProvider (ref, pre) : nullptr;
+                chanTaps[uid] = o.tap;               // editor meter face reads this
+                break;
+            }
             default: break;
         }
         prog->objs.push_back (std::move (o));
@@ -383,6 +393,16 @@ void PatcherProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
             case oAdc:
                 if (out0) juce::FloatVectorOperations::copy (out0, hostIn[0], n);
                 if (out1) juce::FloatVectorOperations::copy (out1, hostIn[1], n);
+                break;
+
+            case oChan:     // most recent block from the tapped strip's ring
+                if (o.tap != nullptr)
+                    o.tap->readLast (out0, out1, n);
+                else
+                {
+                    if (out0) juce::FloatVectorOperations::clear (out0, n);
+                    if (out1) juce::FloatVectorOperations::clear (out1, n);
+                }
                 break;
 
             case oOsc:

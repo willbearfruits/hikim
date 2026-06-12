@@ -451,6 +451,50 @@ struct PatcherTests : juce::UnitTest
             expect (PatcherProcessor::specFor (s.name) == &s, String (s.name) + " specFor");
         }
         expect (PatcherProcessor::specFor ("nonsense~") == nullptr, "specFor rejects junk");
+
+        beginTest ("chan~ pulls the tapped channel ring into the patch");
+        PatcherProcessor p7;
+        p7.setPlayConfigDetails (2, 2, 48000.0, 256);
+        auto ring = std::make_shared<ChanTap>();
+        std::vector<float> tl (256), tr (256);
+        for (int i = 0; i < 256; ++i) { tl[(size_t) i] = (float) i / 256.0f; tr[(size_t) i] = -tl[(size_t) i]; }
+        ring->write (tl.data(), tr.data(), 256);
+        p7.setChanTapProvider ([ring] (const String& ref, bool pre)
+                               { return (ref == "2" && ! pre) ? ring : nullptr; });
+        auto chanN = p7.addNode ("chan~ 2", 0, 0);
+        ValueTree dac7;
+        for (const auto& n : p7.patch)
+            if (n[id::type].toString() == "dac~") dac7 = n;
+        p7.addCable (chanN[id::uid].toString(), 0, dac7[id::uid].toString(), 0);
+        p7.addCable (chanN[id::uid].toString(), 1, dac7[id::uid].toString(), 1);
+        p7.prepareToPlay (48000.0, 256);
+        juce::AudioBuffer<float> b7 (2, 256);
+        b7.clear();
+        p7.processBlock (b7, midi);
+        bool tapMatch = true;
+        for (int i = 0; i < 256 && tapMatch; ++i)
+            tapMatch = std::abs (b7.getSample (0, i) - tl[(size_t) i]) < 1.0e-6f
+                    && std::abs (b7.getSample (1, i) - tr[(size_t) i]) < 1.0e-6f;
+        expect (tapMatch, "ring content reaches dac~");
+
+        beginTest ("unresolved chan~ is silent");
+        PatcherProcessor p8;
+        p8.setPlayConfigDetails (2, 2, 48000.0, 256);
+        p8.setChanTapProvider ([] (const String&, bool) { return nullptr; });
+        auto chanX = p8.addNode ("chan~ 99", 0, 0);
+        ValueTree dac8;
+        for (const auto& n : p8.patch)
+            if (n[id::type].toString() == "dac~") dac8 = n;
+        p8.addCable (chanX[id::uid].toString(), 0, dac8[id::uid].toString(), 0);
+        p8.addCable (chanX[id::uid].toString(), 1, dac8[id::uid].toString(), 1);
+        p8.prepareToPlay (48000.0, 256);
+        juce::AudioBuffer<float> b8 (2, 256);
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < 256; ++i)
+                b8.setSample (ch, i, 0.7f);                 // junk in: silence out
+        p8.processBlock (b8, midi);
+        expect (b8.getMagnitude (0, 0, 256) < 1.0e-9f
+                && b8.getMagnitude (1, 0, 256) < 1.0e-9f, "no tap, no sound");
     }
 };
 

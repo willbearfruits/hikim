@@ -1,5 +1,6 @@
 #pragma once
 #include "../Model/Ids.h"
+#include "../Engine/Taps.h"
 
 namespace dg
 {
@@ -22,7 +23,7 @@ public:
     {
         oAdc, oDac, oOsc, oPhasor, oNoise, oLfo, oMul, oAdd, oLores, oHipass,
         oDelay, oTanh, oSah, oEnv, oMetro, oRandom, oScale, oSig, oParam,
-        oOscIn, oOscOut, oModOut, oNumber, oUnknown
+        oOscIn, oOscOut, oModOut, oNumber, oChan, oUnknown
     };
     // NODES.md object families (palette sections + box/cable colours)
     enum Family { famSource, famEffect, famMath, famTime, famRouting };
@@ -78,6 +79,17 @@ public:
     float modOut (int i) const               { return modOutVals[(size_t) juce::jlimit (0, kMaxModOuts - 1, i)].load(); }
     std::function<void()> onModOutsChanged;  // engine refreshes its mod-source list
 
+    // ---- chan~: the engine resolves a typed track ref ("2", "DRUMS", "master")
+    // to that channel strip's tap ring; tests inject fakes. Setting it recompiles
+    // so refs re-resolve after every graph rebuild.
+    using ChanTapProvider = std::function<std::shared_ptr<ChanTap> (const String& ref, bool pre)>;
+    void setChanTapProvider (ChanTapProvider f) { chanTapProvider = std::move (f); compile(); }
+    std::shared_ptr<ChanTap> chanTapForNode (const String& nodeUid) const   // editor meter faces
+    {
+        auto it = chanTaps.find (nodeUid);
+        return it != chanTaps.end() ? it->second : nullptr;
+    }
+
 private:
     struct PObj
     {
@@ -91,6 +103,7 @@ private:
         int wp = 0;
         juce::Random rng;
         std::shared_ptr<std::atomic<float>> ext;     // oscin value / oscout tap
+        std::shared_ptr<ChanTap> tap;                // chan~ source ring
         std::atomic<float>* hostParam = nullptr;
         int modIdx = -1;                             // modout slot
     };
@@ -120,6 +133,8 @@ private:
     std::array<std::atomic<float>, kMaxModOuts> modOutVals {};
     std::atomic<int> numModOuts { 0 };
     std::map<String, std::shared_ptr<std::atomic<float>>> numberVals;   // message thread map
+    ChanTapProvider chanTapProvider;
+    std::map<String, std::shared_ptr<ChanTap>> chanTaps;                // node uid -> resolved ring
 
     double sampleRate = 48000.0;
     int blockSize = 512;

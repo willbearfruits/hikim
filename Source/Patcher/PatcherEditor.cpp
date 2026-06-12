@@ -80,6 +80,21 @@ public:
         g.setColour (fam);
         g.drawRoundedRectangle (r, 3.0f, isNumber ? 1.6f : chip ? 1.8f : 1.2f);
 
+        // chan~ face: a live meter from the tapped ring (alive at every LOD)
+        auto drawMeter = [&]
+        {
+            if (type != "chan~") return;
+            auto tapPtr = editor.patcher.chanTapForNode (uid());
+            if (tapPtr == nullptr) return;
+            auto m = getLocalBounds().toFloat().reduced (7.0f, 0.0f)
+                         .removeFromBottom (10.0f).removeFromTop (3.0f);
+            g.setColour (col::line.withAlpha (0.8f));
+            g.fillRect (m);
+            g.setColour (col::play);
+            g.fillRect (m.removeFromLeft (m.getWidth()
+                            * juce::jlimit (0.0f, 1.0f, tapPtr->peak())));
+        };
+
         g.setColour (col::text);
         g.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(),
                                                   isNumber ? 15.0f : chip ? 14.0f : 12.0f,
@@ -97,6 +112,7 @@ public:
         else if (chip)
         {
             g.drawText (type, getLocalBounds(), juce::Justification::centred);
+            drawMeter();
             return;                                 // chip: no ports, no args
         }
         else if (full)
@@ -104,7 +120,7 @@ public:
             g.drawText ((type + " " + node[kArgs].toString()).trim(),
                         getLocalBounds().reduced (6, 0).removeFromTop (24),
                         juce::Justification::centredLeft);
-            if (auto* spec = PatcherProcessor::specFor (type))
+            if (auto* spec = PatcherProcessor::specFor (type); spec != nullptr && type != "chan~")
             {
                 g.setColour (col::dim);
                 g.setFont (juce::Font (juce::FontOptions (8.0f)));
@@ -115,6 +131,7 @@ public:
         else
             g.drawText ((type + " " + node[kArgs].toString()).trim(),
                         getLocalBounds().reduced (6, 0), juce::Justification::centredLeft);
+        drawMeter();
 
         // typed ports (NODES.md shapes: signal dome, number square, event triangle);
         // inlets on top glow while a cable is dragging
