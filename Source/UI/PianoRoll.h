@@ -7,10 +7,15 @@
 namespace dg
 {
 
-// Full piano roll on one MIDI clip: draw/move/resize/velocity, marquee select,
-// note clipboard (Ctrl+C/X/V/D when the roll has focus), quantize with
-// strength + swing, humanize (off-grid is first-class), scale lock, MIDI step
-// input. // EXTEND: note repeat as a live MIDI FX.
+// Piano-roll grid tools, switched by the header strip or keys 1/2/3 while
+// the roll has focus (mirrors the timeline's tool keys).
+enum class RollTool { select, pencil, erase };
+
+// Full piano roll on one MIDI clip: select/pencil/erase tools (rubber-band,
+// move, tail-resize, draw, sweep-erase), velocity strip, note clipboard
+// (Ctrl+C/X/V/D when the roll has focus), quantize with strength + swing,
+// humanize (off-grid is first-class), scale lock, MIDI step input.
+// // EXTEND: note repeat as a live MIDI FX.
 class PianoRoll : public juce::Component, private juce::Timer
 {
 public:
@@ -31,6 +36,9 @@ public:
     void deleteSelectedNotes();
     void selectAllNotes();
 
+    RollTool tool = RollTool::select;
+    void setTool (RollTool);
+
     AudioEngine& engine;
     SessionModel& session;
     UIState& ui;
@@ -50,12 +58,14 @@ public:
 private:
     class Keys;
     class Grid;
+    class ToolStrip;
 
     void quantizeSelected (bool humanizeOnly);
     void timerCallback() override;
 
     std::unique_ptr<Keys> keys;
     std::unique_ptr<Grid> grid;
+    std::unique_ptr<ToolStrip> toolStrip;
     juce::Viewport vp;
     juce::Component keysHolder;
 
