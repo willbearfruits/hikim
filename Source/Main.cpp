@@ -52,7 +52,7 @@ class DawGlitchApplication : public juce::JUCEApplication
 {
 public:
     const String getApplicationName() override    { return names::appName; }
-    const String getApplicationVersion() override { return "0.1.0"; }
+    const String getApplicationVersion() override { return ProjectInfo::versionString; }
     bool moreThanOneInstanceAllowed() override    { return true; }
 
     void initialise (const String&) override

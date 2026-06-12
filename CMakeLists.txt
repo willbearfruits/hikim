@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(DAWGLITCH VERSION 0.3.0 LANGUAGES C CXX)
+project(DAWGLITCH VERSION 0.3.1 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -28,6 +28,7 @@ endif()
 
 juce_add_gui_app(dawglitch
     PRODUCT_NAME "HIKIM"
+    VERSION ${PROJECT_VERSION}
     COMPANY_NAME "characterglitch"
     BUNDLE_ID com.characterglitch.dawglitch
     MICROPHONE_PERMISSION_ENABLED TRUE
