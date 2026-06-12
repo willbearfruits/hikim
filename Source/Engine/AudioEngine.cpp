@@ -1820,6 +1820,12 @@ void AudioEngine::launchSlot (ValueTree track, ValueTree clip, juce::int64 whenO
         const double fileSR = (double) clip.getProperty (id::fileSR, currentSR);
         const double stretchRate = juce::jlimit (0.1, 10.0, (double) clip.getProperty (id::stretch, 1.0));
         rc.ratio = (fileSR / currentSR) / stretchRate;   // EXTEND: pitch-locked session loops via StretchCache
+        if ((bool) clip.getProperty (id::loop, false))   // content-looped clip keeps looping in its slot
+        {
+            const double passSec = (double) clip.getProperty (id::loopLen, 0.0);
+            if (passSec > 1.0e-4)
+                rc.loopLen = juce::jmax ((juce::int64) 1, secToSamples (passSec));
+        }
         rc.reader = reader;
         rc.numFileChannels = (int) reader->numChannels;
         rc.fileLength = reader->lengthInSamples;

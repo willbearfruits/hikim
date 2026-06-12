@@ -1558,7 +1558,8 @@ void TimelineView::dropSlotClip (const String& desc, juce::Point<int> canvasPos)
     c.setProperty (id::uid, SessionModel::newUID(), nullptr);
     c.setProperty (id::start, juce::jmax (0.0, snap (xToTime (canvasPos.x))), nullptr);
     c.setProperty (id::lane, 0, nullptr);
-    c.removeProperty (id::loopBeats, nullptr);
+    if (! (bool) c.getProperty (id::loop, false))       // content-looped clips keep their pass length
+        c.removeProperty (id::loopBeats, nullptr);
     SessionModel::clipsOf (target).appendChild (c, &session.undo);
 }
 
