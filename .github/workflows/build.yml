@@ -42,10 +42,13 @@ jobs:
       - name: bundle ffmpeg
         # decode-anything out of the box: ffmpeg.exe ships next to HIKIM.exe
         run: |
-          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-7.1-essentials_build.zip" -OutFile ffmpeg.zip
+          Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -OutFile ffmpeg.zip
           Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-x
-          Copy-Item ffmpeg-x\ffmpeg-7.1-essentials_build\bin\ffmpeg.exe build\dawglitch_artefacts\Release\ffmpeg.exe
-          Copy-Item ffmpeg-x\ffmpeg-7.1-essentials_build\LICENSE build\dawglitch_artefacts\Release\ffmpeg-LICENSE.txt
+          $ff = Get-ChildItem ffmpeg-x -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          Copy-Item $ff.FullName build\dawglitch_artefacts\Release\ffmpeg.exe
+          $lic = Get-ChildItem ffmpeg-x -Recurse -Filter "LICENSE*" | Select-Object -First 1
+          if ($lic) { Copy-Item $lic.FullName build\dawglitch_artefacts\Release\ffmpeg-LICENSE.txt }
+          else { "FFmpeg GPL build - https://github.com/BtbN/FFmpeg-Builds" | Out-File build\dawglitch_artefacts\Release\ffmpeg-LICENSE.txt }
       - name: portable zip
         run: Compress-Archive -Path build\dawglitch_artefacts\Release\HIKIM.exe, build\dawglitch_artefacts\Release\ffmpeg.exe, build\dawglitch_artefacts\Release\ffmpeg-LICENSE.txt, README.md, LICENSE -DestinationPath HIKIM-windows-portable.zip
       - name: installer
