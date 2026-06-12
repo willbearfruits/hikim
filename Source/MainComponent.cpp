@@ -17,7 +17,6 @@ MainComponent::MainComponent()
     auto* props = appProps.getUserSettings();
     Look::get().setTheme (props->getBoolValue ("uiLight", false));
     juce::Desktop::getInstance().setGlobalScaleFactor ((float) props->getDoubleValue ("uiScale", 1.0));
-    bottomH = props->getIntValue ("bottomH", 240);
     ui.timelineHeaderW = props->getIntValue ("timelineHeaderW", 220);
     ui.persistInt = [this] (const String& key, int v)
     {
@@ -57,14 +56,21 @@ MainComponent::MainComponent()
     chainPanel = std::make_unique<ChainPanel> (*engine, session, ui);
     patchView = std::make_unique<PatchView> (*engine, session, ui);
     sampleEditor = std::make_unique<SampleEditor> (*engine, session, ui);
-    bottomTabs.addTab ("MIXER", col::panel, mixer.get(), false);
-    bottomTabs.addTab ("CHAIN", col::panel, chainPanel.get(), false);
-    bottomTabs.addTab ("PATCH", col::panel, patchView.get(), false);
-    bottomTabs.addTab ("PIANO ROLL", col::panel, pianoRoll.get(), false);
-    bottomTabs.addTab ("SAMPLE", col::panel, sampleEditor.get(), false);
-    bottomTabs.addTab ("FILES", col::panel, fileBin.get(), false);
-    bottomTabs.addTab ("FX", col::panel, fxExplorer.get(), false);
-    addAndMakeVisible (bottomTabs);
+
+    // modular zones: find things LEFT, the selected thing RIGHT, the playing
+    // surface BOTTOM - every panel can be moved (right-click its chip),
+    // collapsed (click its chip), and 0 clears the whole screen to focus
+    dock = std::make_unique<Dock> (appProps.getUserSettings());
+    dock->registerPanel ("FILES", fileBin.get(), Dock::zLeft);
+    dock->registerPanel ("FX", fxExplorer.get(), Dock::zLeft);
+    dock->registerPanel ("CHAIN", chainPanel.get(), Dock::zRight);
+    dock->registerPanel ("SAMPLE", sampleEditor.get(), Dock::zRight);
+    dock->registerPanel ("PATCH", patchView.get(), Dock::zRight);
+    dock->registerPanel ("MIXER", mixer.get(), Dock::zBottom);
+    dock->registerPanel ("PIANO ROLL", pianoRoll.get(), Dock::zBottom);
+    dock->restore();
+    dock->onLayoutChanged = [this] { resized(); };
+    addAndMakeVisible (*dock);
 
     chainPanel->showFxMenu = [this] (ValueTree track, juce::Component* target)
     {
@@ -117,15 +123,6 @@ MainComponent::MainComponent()
 
     addChildComponent (helpOverlay);
 
-    bottomBar.onDragStart = [this] { bottomHAtDragStart = bottomH; };
-    bottomBar.onDrag = [this] (int dy)
-    {
-        bottomH = juce::jlimit (140, juce::jmax (200, getHeight() - 220), bottomHAtDragStart - dy);
-        appProps.getUserSettings()->setValue ("bottomH", bottomH);
-        resized();
-    };
-    addAndMakeVisible (bottomBar);
-
     startTimerHz (20);
     setSize (1500, 900);
 
@@ -145,14 +142,15 @@ void MainComponent::resized()
 {
     auto b = getLocalBounds();
     transportBar->setBounds (b.removeFromTop (42));
-    bottomTabs.setBounds (b.removeFromBottom (juce::jlimit (140, juce::jmax (200, getHeight() - 220), bottomH)));
-    bottomBar.setBounds (b.removeFromBottom (7));
-    timeline->setBounds (b);
-    sessionGrid->setBounds (b);
-    routingView->setBounds (b);
+    dock->setBounds (b);
+    const auto center = dock->layoutAndGetCenter();
+    timeline->setBounds (center);
+    sessionGrid->setBounds (center);
+    routingView->setBounds (center);
     timeline->setVisible (viewMode == 0);
     sessionGrid->setVisible (viewMode == 1);
     routingView->setVisible (viewMode == 2);
+    dock->toFront (false);                  // zones overlay the views; center stays click-through
     helpOverlay.setBounds (getLocalBounds());
     helpOverlay.toFront (false);
 }
@@ -288,6 +286,8 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const String&)
         scale.addItem (mScale150, "150%", true, std::abs (cur - 1.5) < 0.01);
         m.addSubMenu ("UI scale", scale);
         m.addSeparator();
+        m.addItem (mFocusMode, "Focus mode (hide all panels)\t0", true, dock->isFocus());
+        m.addSeparator();
         m.addItem (mCheckUpdates, "Check for updates...");
     }
     return m;
@@ -304,6 +304,7 @@ void MainComponent::menuItemSelected (int itemID, int)
         case mExport: showExportDialog (*engine, session); break;
         case mQuit: juce::JUCEApplication::getInstance()->systemRequestedQuit(); break;
         case mCheckUpdates: Updater::checkAsync (appProps.getUserSettings(), true); break;
+        case mFocusMode: dock->toggleFocus(); break;
         case mUndo: session.undo.undo(); break;
         case mRedo: session.undo.redo(); break;
         case mAddAudio: session.undo.beginNewTransaction ("add track"); session.addTrack ("audio", "Audio " + String (session.tracks().getNumChildren())); break;
@@ -426,10 +427,7 @@ void MainComponent::filesDropped (const juce::StringArray& files, int x, int y)
 
 void MainComponent::selectTab (const String& name)
 {
-    const auto names = bottomTabs.getTabNames();
-    const int idx = names.indexOf (name);
-    if (idx >= 0)
-        bottomTabs.setCurrentTabIndex (idx);
+    dock->showPanel (name);
 }
 
 void MainComponent::toggleView()
@@ -567,6 +565,11 @@ bool MainComponent::keyPressed (const juce::KeyPress& k, juce::Component* origin
     {
         ui.tool = kc == '1' ? Tool::select : kc == '2' ? Tool::razor : Tool::erase;
         timeline->syncToolbar();
+        return true;
+    }
+    if (kc == '0')                          // focus: clear the screen, again to bring panels back
+    {
+        dock->toggleFocus();
         return true;
     }
 

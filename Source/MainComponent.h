@@ -13,6 +13,7 @@
 #include "UI/SessionGrid.h"
 #include "UI/SampleEditor.h"
 #include "UI/RoutingView.h"
+#include "UI/Dock.h"
 
 namespace dg
 {
@@ -59,22 +60,7 @@ private:
         mAddAudio, mAddMidi, mAddBus, mAddVideo, mAddPatchTrack,
         mAudioSettings, mPluginManager, mVideoWindow,
         mThemeLight, mScale90, mScale100, mScale110, mScale125, mScale150,
-        mCheckUpdates
-    };
-
-    // thin draggable divider (horizontal bar, vertical drag)
-    struct DragBar : juce::Component
-    {
-        std::function<void()> onDragStart;
-        std::function<void (int totalDy)> onDrag;
-        DragBar() { setMouseCursor (juce::MouseCursor::UpDownResizeCursor); }
-        void mouseDown (const juce::MouseEvent&) override { if (onDragStart) onDragStart(); }
-        void mouseDrag (const juce::MouseEvent& e) override { if (onDrag) onDrag (e.getDistanceFromDragStartY()); }
-        void paint (juce::Graphics& g) override
-        {
-            g.setColour (col::line);
-            g.fillRect (getLocalBounds().withSizeKeepingCentre (60, 3));
-        }
+        mCheckUpdates, mFocusMode
     };
 
     void toggleView();
@@ -94,7 +80,7 @@ private:
     std::unique_ptr<SessionGrid> sessionGrid;
     std::unique_ptr<RoutingView> routingView;
     int viewMode = 0;                       // 0 arrange, 1 session, 2 patcher
-    juce::TabbedComponent bottomTabs { juce::TabbedButtonBar::TabsAtTop };
+    std::unique_ptr<Dock> dock;             // modular LEFT/RIGHT/BOTTOM panel zones
     std::unique_ptr<MixerView> mixer;
     std::unique_ptr<PianoRoll> pianoRoll;
     std::unique_ptr<FileBin> fileBin;
@@ -107,8 +93,6 @@ private:
     std::unique_ptr<FloatingWindow> settingsWin, pluginWin, videoWin;
     std::map<String, std::unique_ptr<FloatingWindow>> editorWindows;   // by insert uid
 
-    DragBar bottomBar;
-    int bottomH = 240, bottomHAtDragStart = 240;
     juce::TooltipWindow tooltips { nullptr, 600 };
 
     // dismissable cheatsheet for newcomers (? button / F1)
