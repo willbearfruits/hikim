@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HIKIM - experimental DAW with TEETH and WIRES</title>
+  <meta name="description" content="HIKIM is a cross-platform experimental DAW built around pristine arrangement, the TEETH corruption rack and the WIRES patcher.">
+  <meta property="og:title" content="HIKIM">
+  <meta property="og:description" content="A cross-platform experimental DAW for clean arrangement, opt-in corruption and patchable signal flow.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://willbearfruits.github.io/hikim/assets/og.png">
+  <meta property="og:url" content="https://willbearfruits.github.io/hikim/">
+  <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+  <header class="hero" id="top">
+    <img class="hero-image" src="assets/screenshots/hikim-routing.png" alt="HIKIM routing patcher screenshot">
+    <div class="hero-shade" aria-hidden="true"></div>
+    <nav class="topbar" aria-label="Main navigation">
+      <a class="brand" href="#top">HIKIM</a>
+      <div class="nav-links">
+        <a href="#download">Download</a>
+        <a href="#screens">Screens</a>
+        <a href="#build">Build</a>
+        <a href="https://github.com/willbearfruits/hikim">GitHub</a>
+      </div>
+    </nav>
+    <div class="hero-copy">
+      <p class="kicker">Experimental DAW / JUCE 8 / C++20</p>
+      <h1>HIKIM</h1>
+      <p class="lead">Clean arrangement, opt-in destruction, live clip launching and patchable signal flow in one desktop instrument.</p>
+      <div class="hero-actions" aria-label="Primary actions">
+        <a class="button primary" href="https://github.com/willbearfruits/hikim/raw/main/dist/HIKIM-windows-portable.zip">Windows portable</a>
+        <a class="button" href="https://github.com/willbearfruits/hikim/raw/main/dist/HIKIM-linux-x86_64.tar.gz">Linux x86_64</a>
+        <a class="button quiet" href="https://github.com/willbearfruits/hikim">Source</a>
+      </div>
+    </div>
+    <a class="scroll-cue" href="#identity">TEETH / WIRES / SESSION</a>
+  </header>
+
+  <main>
+    <section class="band identity" id="identity">
+      <div class="section-head">
+        <p class="kicker">The rule</p>
+        <h2>Breakage is a choice.</h2>
+      </div>
+      <div class="identity-grid">
+        <article class="identity-item">
+          <span class="rail red"></span>
+          <h3>Clean path stays clean</h3>
+          <p>The graph keeps pristine tracks intact until the user explicitly inserts a destructive device.</p>
+        </article>
+        <article class="identity-item">
+          <span class="rail amber"></span>
+          <h3>TEETH</h3>
+          <p>A corruption rack for performable damage. With modules off, it is required to pass audio bit-identically.</p>
+        </article>
+        <article class="identity-item">
+          <span class="rail green"></span>
+          <h3>WIRES</h3>
+          <p>A patcher that can act as an effect or an instrument, with <code>param</code> bridges and OSC in/out.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="band download" id="download">
+      <div class="section-head">
+        <p class="kicker">Build artifacts</p>
+        <h2>Download the current packages.</h2>
+      </div>
+      <div class="release-list">
+        <a class="release-card" href="https://github.com/willbearfruits/hikim/raw/main/dist/HIKIM-setup.exe">
+          <span>Windows installer</span>
+          <strong>HIKIM-setup.exe</strong>
+          <small>Installer build</small>
+        </a>
+        <a class="release-card" href="https://github.com/willbearfruits/hikim/raw/main/dist/HIKIM-windows-portable.zip">
+          <span>Windows portable</span>
+          <strong>HIKIM-windows-portable.zip</strong>
+          <small>Portable exe plus README</small>
+        </a>
+        <a class="release-card" href="https://github.com/willbearfruits/hikim/raw/main/dist/HIKIM-linux-x86_64.tar.gz">
+          <span>Linux x86_64</span>
+          <strong>HIKIM-linux-x86_64.tar.gz</strong>
+          <small>Portable binary</small>
+        </a>
+      </div>
+      <p class="note">These are experimental DAW builds. Keep backups of important sessions and source audio.</p>
+    </section>
+
+    <section class="band screens" id="screens">
+      <div class="section-head">
+        <p class="kicker">Screenshots</p>
+        <h2>One session, three views.</h2>
+      </div>
+      <div class="screen-grid">
+        <figure>
+          <img src="assets/screenshots/hikim-arrange.png" alt="HIKIM arrange timeline view">
+          <figcaption>ARRANGE: timeline, mixer and edit tools.</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/screenshots/hikim-session.png" alt="HIKIM session launcher view">
+          <figcaption>SESSION: quantized clips, scenes and follow mode.</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/screenshots/hikim-routing.png" alt="HIKIM patcher routing view">
+          <figcaption>PATCHER: routing boxes, modulation sources and cables.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="band feature-band">
+      <div class="section-head">
+        <p class="kicker">Working surface</p>
+        <h2>Built like a DAW, bent toward damage.</h2>
+      </div>
+      <div class="feature-columns">
+        <ul>
+          <li>Audio and MIDI timeline editing</li>
+          <li>Session grid launching and scene follow</li>
+          <li>TEETH rack macros and MIDI learn</li>
+          <li>WIRES device and instrument modes</li>
+        </ul>
+        <ul>
+          <li>VST3, AU and LV2 hosting paths</li>
+          <li>Built-in RUST, GRAVEL and HYMN instruments</li>
+          <li>Patch modulation from LFO, chaos and follower sources</li>
+          <li>ffmpeg-backed media decode fallback</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="band build" id="build">
+      <div class="section-head">
+        <p class="kicker">Source build</p>
+        <h2>CMake, JUCE 8, C++20.</h2>
+      </div>
+      <pre><code>cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
+./build/dawglitch_artefacts/Release/HIKIM
+
+./build/ruin_tests_artefacts/Release/ruin_tests</code></pre>
+      <p class="note">The test suite enforces the clean-path law for TEETH and WIRES, along with model, clip, instrument and stretch-cache coverage.</p>
+    </section>
+  </main>
+
+  <footer>
+    <span>HIKIM</span>
+    <a href="https://github.com/willbearfruits/hikim">github.com/willbearfruits/hikim</a>
+  </footer>
+</body>
+</html>

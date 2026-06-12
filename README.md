@@ -1,140 +1,163 @@
 # HIKIM
 
-A cross-platform experimental DAW (JUCE 8 / C++20) built around one idea: **creative destruction**.
-Damage, corruption and breakage are generative, intentional, and performable — never accidental,
-never forced on the signal. The clean path stays pristine; the **TEETH** corruption rack is
-insert-only and opt-in, so a bare acoustic vocal and a shredded amen live in the same session
-without touching each other.
+HIKIM is a cross-platform experimental DAW built with JUCE 8, C++20 and CMake.
+It is for clean arrangement, ugly signal damage, live clip launching, and patchable
+audio systems in the same desktop app.
 
-## Build
+The identity pieces are:
 
-Requires CMake ≥ 3.22 and a C++20 compiler. JUCE is found in this order:
+- **TEETH**: an opt-in corruption rack. With every module off it must pass audio
+  bit-identically.
+- **WIRES**: a Max-style patcher that can run as an effect device or as an instrument.
+- **Three working views**: ARRANGE, SESSION and PATCHER/Routing over one shared project tree.
+- **Pristine by default**: the clean path stays clean until the user inserts damage.
 
-1. `-DJUCE_SOURCE_DIR=/path/to/JUCE`
-2. `./JUCE` (git submodule / checkout next to `CMakeLists.txt`)
-3. `/opt/JUCE`
-4. FetchContent from GitHub, pinned to **8.0.13** (needs network on first configure)
+Project page: <https://willbearfruits.github.io/hikim/>
 
-### Linux
+![HIKIM arrange view](docs/assets/screenshots/hikim-arrange.png)
+
+## Downloads
+
+Prebuilt artifacts are tracked in this repository:
+
+| Platform | File | Notes |
+| --- | --- | --- |
+| Windows | [`dist/HIKIM-setup.exe`](dist/HIKIM-setup.exe) | Installer build. |
+| Windows | [`dist/HIKIM-windows-portable.zip`](dist/HIKIM-windows-portable.zip) | Portable `HIKIM.exe` plus README. |
+| Linux x86_64 | [`dist/HIKIM-linux-x86_64.tar.gz`](dist/HIKIM-linux-x86_64.tar.gz) | Portable binary. |
+
+These are experimental builds. Keep a copy of important sessions and audio before
+using any early DAW build for serious work.
+
+## Screenshots
+
+| Arrange | Session | Patcher/Routing |
+| --- | --- | --- |
+| ![Arrange timeline](docs/assets/screenshots/hikim-arrange.png) | ![Session launcher](docs/assets/screenshots/hikim-session.png) | ![Routing patcher](docs/assets/screenshots/hikim-routing.png) |
+
+## What Works
+
+- Timeline editing with audio/MIDI tracks, split, ripple delete, nudge, duplicate,
+  undo/redo, loop selection and drag/drop import.
+- Session grid with quantized clip and scene launching, follow/tracker-style scene
+  chaining, slot waveforms and BPM detect/conform.
+- TEETH corruption rack with module ordering, macros, MIDI learn and rack state.
+- WIRES patcher with oscillators, filters, delay feedback, host `param` bridge and
+  OSC in/out.
+- Plugin hosting for VST3 everywhere, AU on macOS and LV2 where supported by JUCE.
+- Built-in instruments: RUST, GRAVEL, HYMN and the WIRES instrument path.
+- Mixer, channel chain, modulation patch bay, piano roll, sample editor, file bin
+  and FX browser.
+- Offline export, stems, stretch cache, ffmpeg-backed media decode fallback and
+  XML project files (`*.dgproj`).
+
+## Quick Start
+
+### Linux artifact
+
+```sh
+tar -xzf dist/HIKIM-linux-x86_64.tar.gz
+./HIKIM
+```
+
+### Windows artifact
+
+Run `dist/HIKIM-setup.exe`, or unzip `dist/HIKIM-windows-portable.zip` and launch
+`HIKIM.exe`.
+
+### From source
+
+Requirements:
+
+- CMake 3.22 or newer
+- C++20 compiler
+- JUCE 8.0.13, supplied by `-DJUCE_SOURCE_DIR`, `./JUCE`, `/opt/JUCE`, or fetched by CMake
+
+Linux dependencies:
 
 ```sh
 sudo apt install build-essential cmake libasound2-dev libjack-jackd2-dev \
     libfreetype-dev libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
     libxinerama-dev libxrandr-dev libxrender-dev libfontconfig1-dev
+```
+
+Build:
+
+```sh
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
-./build/dawglitch_artefacts/Release/"HIKIM"
+./build/dawglitch_artefacts/Release/HIKIM
 ```
 
-### macOS
+Windows:
 
-```sh
-cmake -B build -DCMAKE_BUILD_TYPE=Release -G Xcode   # or default generator
-cmake --build build --config Release -j
-open "build/dawglitch_artefacts/Release/HIKIM.app"
-```
-
-AU hosting is enabled automatically on macOS (plus VST3 and LV2).
-
-### Windows
-
-```sh
+```bat
 cmake -B build -G "Visual Studio 17 2022"
 cmake --build build --config Release
 build\dawglitch_artefacts\Release\HIKIM.exe
 ```
 
-ASIO: drop the Steinberg ASIO SDK in and enable `JUCE_ASIO=1` in `CMakeLists.txt`
-(see the `// EXTEND` comment there). WASAPI works out of the box.
+macOS:
 
-## Quick orientation
+```sh
+cmake -B build -DCMAKE_BUILD_TYPE=Release -G Xcode
+cmake --build build --config Release -j
+open "build/dawglitch_artefacts/Release/HIKIM.app"
+```
 
-- **Space/K** play-stop - **J/L** bar back/forward (Shift = 4 bars) - **Return** to start -
-  **R** record - **Shift+L** loop on/off - **Ctrl+L** loop around selection -
-  **S** split at playhead - **Del** delete - **Shift+Del** ripple delete -
-  **arrows** nudge selection (Shift = fine) - **M** mute selected track -
-  **Ctrl+X/C/V** cut/copy/paste at playhead - **Ctrl+D** duplicate - **Ctrl+A** select all -
-  **Ctrl+T / Ctrl+Shift+T** new audio/MIDI track - **Ctrl+Z / Ctrl+Shift+Z** undo/redo -
-  **Ctrl+N/O/S** new/open/save - **Ctrl+E** export - **Ctrl+wheel** or **+/-** zoom - **F1** help.
-- Timeline tools (toolbar top-left, or keys **1/2/3**): **select** (arrow),
-  **razor** (click a clip to split there), **erase** (click a clip to delete it).
-- **Three modes, one session**: **ARRANGE** (timeline) → **SESSION** (launch grid) →
-  **PATCHER** (channels as boxes: real routing as cables — drag output/send ports onto
-  buses, drag mod sources onto channels, click device chips to open editors,
-  double-click for new tracks). Tab / V / the transport view button cycles.
-- The session grid: tracks as columns,
-  scenes as rows; click a slot to launch it quantized (combo top-right, default 1 bar);
-  clips loop in sync until the track's stop square or STOP ALL; scene ▶ fires a row.
-  Click an empty MIDI cell to create a loop and edit it in the piano roll; drop audio
-  files onto audio cells (waveforms and MIDI notes draw inside the slots, with a live
-  loop-progress sweep). Right-click a slot: delete / rename / loop length / **Detect
-  BPM** / **Conform to project tempo** (drops auto-detect BPM — the badge in the corner).
-  **FOLLOW** = tracker mode: scenes chain automatically; right-click a scene to set its
-  bars (1-16) and watch the row highlight walk down the grid.
-- Drag audio files anywhere in the window to import (`.dgproj` opens, video files load
-  the video track). Formats: WAV/AIFF/FLAC/OGG/MP3 natively; with **ffmpeg** installed,
-  anything it can decode (opus, m4a, wma, exotic wavs, ...) bridges in via a one-time
-  cached transcode. The **FILES** tab is a bin: browse a folder, double-click to preview,
-  drag onto the timeline. The **FX** tab is a searchable explorer (TEETH, built-in
-  instruments, plugins) — drag onto a track or double-click to hit the selected track.
-- Right-click everything: ruler (tempo/timesig changes, markers), clips, track headers,
-  automation lanes, rack knobs (macro assign / MIDI learn). Drag a header's bottom edge
-  to resize the track or lane.
-- **Double-click any audio clip** (arrange or session) → the **SAMPLE** tab: full-file
-  waveform with the used region highlighted — slide it, trim either edge, gain/fades,
-  pitch-lock, conform-to-tempo, preview. Double-click MIDI clips → piano roll, as ever.
-- **WIRES**: a Max-style patcher, two ways in — as a device (FX menu → *Add WIRES*) or
-  as a **channel** (*Track → Add WIRES track*, or *Set instrument → WIRES* on any MIDI
-  track: the patch IS the sound source). The editor has an object palette on the left
-  (click to place, drag to position, with descriptions + default args), or double-click
-  the canvas and type (`osc~ 220`, `delay~ 250 0.6`...). Cable outlets (bottom) to
-  inlets (top) — inlets glow while you drag. `param N` surfaces knobs P1-8
-  (automatable + PATCH-moddable); `oscin/oscout` talk OSC (SuperCollider bridge);
-  feedback is legal through delay~.
-- **CHAIN** tab: the selected track's devices as boxes (power, edit, reorder, remove;
-  TEETH boxes carry live macro knobs). **PATCH** tab: the modulation bay — drag cables
-  from LFOs / CHAOS (Lorenz) / FOLLOW (envelope follower) onto any parameter
-  (*+ TARGET* adds one); cable amount is bipolar, knobs wiggle around wherever you
-  set them, and moving a knob re-centres its modulation.
-- Track header buttons: **M**ute, **S**olo, **R**ecord-arm, **MON** (off → direct dry →
-  through the insert chain), **FX** (insert chain: add **TEETH**, add plugins,
-  set instrument — built-ins: GlitchTone, RUST, GRAVEL, HYMN), **A** (automation lanes).
-- **Design**: *Options → Light theme* flips the whole app between brutal-dark and
-  paper-light; *Options → UI scale* (90–150%) resizes everything including fonts.
-  Drag the bar above the bottom panel to resize it; drag the divider at the right
-  edge of the track headers to widen them. All persisted.
-- First plugin scan: *Options → Plugin manager → Options → Scan for new...*
-- Project files are XML (`*.dgproj`); recorded audio lands in `<project>_Assets/`.
+## Controls
 
-## Naming
+- **Space/K**: play or stop.
+- **J/L**: jump one bar, Shift for four bars.
+- **Return**: return to start.
+- **R**: record.
+- **Shift+L**: loop on/off.
+- **Ctrl+L**: loop around selection.
+- **S**: split at playhead.
+- **Delete**: delete selected clips.
+- **Shift+Delete**: ripple delete.
+- **Ctrl+X/C/V/D/A**: cut, copy, paste, duplicate, select all.
+- **Ctrl+T / Ctrl+Shift+T**: new audio or MIDI track.
+- **Ctrl+Z / Ctrl+Shift+Z**: undo or redo.
+- **Ctrl+N/O/S/E**: new, open, save, export.
+- **Tab / V / view button**: cycle ARRANGE, SESSION and PATCHER views.
+- **1/2/3**: select, razor and erase tools.
+- **F1**: help.
 
-The app is **HIKIM**; the corruption rack is **TEETH**. Both are set in one place if you
-ever want different names: `Source/Common.h` → `dg::names::appName` / `rackName`
-(plus `PRODUCT_NAME` in `CMakeLists.txt`).
+Most editing surfaces have context menus. Right-click clips, track headers, the
+ruler, automation lanes, rack knobs and session slots.
 
-## What's deliberately minimal (marked `// EXTEND:` in source)
+## Project Model
 
-- Time-stretch: varispeed by default; right-click a clip → *Pitch-locked stretch (RubberBand)*
-  renders the stretch in the background and swaps in seamlessly. Live RT stretch is the marked slot.
-- Take comping: split a take, "promote" the slice, nudge edges to overlap — overlapping
-  audible clips crossfade automatically (equal-power). Visual fade handles on overlaps are next.
-- Plugin scanning runs in-process (async, with crash blacklist); out-of-process marked.
-- Video decoding on Linux (sync logic + frame counter run everywhere; mac/win play video).
-- Stems render one pass per track; single-pass multi-writer marked.
-- MIDI FX / arpeggiator slot on instrument tracks.
+`SessionModel` owns one JUCE `ValueTree`, saved as XML `.dgproj`. All UI and engine
+state changes go through that tree so undo, views and the audio graph stay in sync.
+
+Time conventions:
+
+- timeline positions and lengths: double seconds
+- MIDI notes: beats relative to clip start
+- audio clip offset: source-file samples
+- realtime engine snapshots: engine samples at the current sample rate
+
+Read [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full graph and subsystem notes.
 
 ## Testing
 
-A headless suite covers the model, clip operations, comp crossfades, the TEETH
-modules (including the bit-transparency law and feedback clamping), the built-in
-instruments, and the stretch cache:
+The headless suite covers model operations, clip editing, comp crossfades, TEETH,
+WIRES bit-transparency, built-in instruments and the stretch cache.
 
 ```sh
 cmake --build build --target ruin_tests -j$(nproc)
 ./build/ruin_tests_artefacts/Release/ruin_tests
 ```
 
-Clip editing lives in `Source/Model/ClipOps.*` (UI-free) precisely so the suite
-drives the same code the timeline does.
+Crashes write a backtrace to `/tmp/ruin-crash.log`.
 
-See `ARCHITECTURE.md` for how the graph, session model and subsystems fit together.
+## Extension Points
+
+Deliberate growth points are marked with `// EXTEND:` in the source. The next
+owner-approved roadmap work is Phase C: recording into session slots and capturing a
+session jam back into the arrangement.
+
+Names live in `Source/Common.h`: `dg::names::appName`, `rackName`, `patcherName`,
+plus `PRODUCT_NAME` in `CMakeLists.txt`.

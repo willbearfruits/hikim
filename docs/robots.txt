@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://willbearfruits.github.io/hikim/sitemap.xml
