@@ -94,6 +94,12 @@ devices.
 ## Phasing
 
 - **E1** unify palette + channels-as-nodes + zoom/LOD + the number box
+  - landed: number box; TouchDesigner zoom/pan + box LOD (chip/mid/full);
+    family palette with typed ports/cables in WIRES; `chan~` (pre/post strip
+    taps over a published ring - graph cycles are illegal, taps are how
+    feedback routing works; live meter face at every LOD)
+  - remaining: the same palette/canvas serving PATCHER-mode and the PATCH
+    bay, `strip`/`master~` as objects (strip edits = session edits, same undo)
 - **E2** `sample~` / instruments-as-nodes / `poly` + `mux`/`matrix~`
 - **E3** the `#` family + `screen#`
 - **E4** multichannel cables + preset morphing
