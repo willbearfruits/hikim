@@ -4,6 +4,7 @@
 #include <JuceHeader.h>
 #include "../Source/Model/Session.h"
 #include "../Source/Model/ClipOps.h"
+#include "../Source/Model/AutoGen.h"
 #include "../Source/Engine/TempoMap.h"
 #include "../Source/Engine/ClipPlayer.h"
 #include "../Source/Engine/MidiSource.h"
@@ -960,6 +961,113 @@ struct CrossfadeHandleTests : juce::UnitTest
     }
 };
 
+// =========================================================================== chaos automation
+
+struct ChaosAutomationTests : juce::UnitTest
+{
+    ChaosAutomationTests() : UnitTest ("ChaosAutomation") {}
+
+    static ValueTree makeLane (SessionModel& s, ValueTree track)
+    {
+        ValueTree lane (id::LANE);
+        lane.setProperty (id::param, "strip:gain", nullptr);
+        lane.setProperty (id::name, "Volume", nullptr);
+        lane.setProperty (id::mode, 1, nullptr);
+        SessionModel::autoOf (track).appendChild (lane, nullptr);
+        return lane;
+    }
+
+    static std::vector<std::pair<double, double>> points (const ValueTree& lane)
+    {
+        std::vector<std::pair<double, double>> out;
+        for (const auto& p : lane)
+            if (p.hasType (id::PT))
+                out.emplace_back ((double) p[id::t], (double) p[id::v]);
+        return out;
+    }
+
+    void runTest() override
+    {
+        SessionModel s;
+        TempoMap map (s.tempoMap(), 48000.0);
+        auto track = s.addTrack ("audio", "T");
+
+        for (auto kind : { autogen::Gen::lorenz, autogen::Gen::drunk, autogen::Gen::ratchet })
+        {
+            beginTest ("generator " + String ((int) kind) + " fills the region, in range");
+            auto lane = makeLane (s, track);
+            const int n = autogen::generate (s, map, lane, kind, 0.0, 8.0, 1234);
+            expect (n > 8, "writes a real curve");
+            expectEquals (n, (int) points (lane).size());
+            bool inRange = true, inRegion = true;
+            for (const auto& [t, v] : points (lane))
+            {
+                inRange = inRange && v >= 0.0 && v <= 1.0;
+                inRegion = inRegion && t >= -1.0e-9 && t <= 8.0 + 1.0e-9;
+            }
+            expect (inRange, "values stay 0..1");
+            expect (inRegion, "points stay inside the region");
+        }
+
+        beginTest ("deterministic per seed, distinct across seeds");
+        auto laneA = makeLane (s, track);
+        auto laneB = makeLane (s, track);
+        auto laneC = makeLane (s, track);
+        autogen::generate (s, map, laneA, autogen::Gen::drunk, 0.0, 8.0, 7);
+        autogen::generate (s, map, laneB, autogen::Gen::drunk, 0.0, 8.0, 7);
+        autogen::generate (s, map, laneC, autogen::Gen::drunk, 0.0, 8.0, 8);
+        expect (points (laneA) == points (laneB), "same seed, same curve");
+        expect (points (laneA) != points (laneC), "new seed, new curve");
+
+        beginTest ("regenerating replaces only the region");
+        auto lane2 = makeLane (s, track);
+        ValueTree outside (id::PT);
+        outside.setProperty (id::t, 20.0, nullptr);
+        outside.setProperty (id::v, 0.5, nullptr);
+        lane2.appendChild (outside, nullptr);
+        ValueTree inside (id::PT);
+        inside.setProperty (id::t, 4.0, nullptr);
+        inside.setProperty (id::v, 0.5, nullptr);
+        lane2.appendChild (inside, nullptr);
+        autogen::generate (s, map, lane2, autogen::Gen::lorenz, 0.0, 8.0, 99);
+        bool keptOutside = false, keptInside = false;
+        for (const auto& [t, v] : points (lane2))
+        {
+            if (std::abs (t - 20.0) < 1.0e-9 && std::abs (v - 0.5) < 1.0e-9) keptOutside = true;
+            if (std::abs (t - 4.0) < 1.0e-9 && std::abs (v - 0.5) < 1.0e-9)  keptInside = true;
+        }
+        expect (keptOutside, "point outside the region survives");
+        expect (! keptInside, "point inside the region is replaced");
+
+        beginTest ("ratchets decay within each burst");
+        auto lane3 = makeLane (s, track);
+        autogen::generate (s, map, lane3, autogen::Gen::ratchet, 0.0, 2.0, 5);
+        auto pts = points (lane3);
+        std::sort (pts.begin(), pts.end());
+        // peaks are every other point; within beat 0 they must not rise
+        double lastPeak = 2.0;
+        bool decays = true;
+        for (const auto& [t, v] : pts)
+        {
+            if (t >= map.beatsToSeconds (1.0) - 1.0e-9) break;
+            if (v > 0.2)                                   // a hit, not a tail
+            {
+                decays = decays && v <= lastPeak + 1.0e-9;
+                lastPeak = v;
+            }
+        }
+        expect (decays, "burst amplitude only falls");
+
+        beginTest ("generate undoes in one step");
+        auto lane4 = makeLane (s, track);
+        const int before = (int) points (lane4).size();
+        autogen::generate (s, map, lane4, autogen::Gen::drunk, 0.0, 4.0, 3);
+        expect ((int) points (lane4).size() > before);
+        s.undo.undo();
+        expectEquals ((int) points (lane4).size(), before);
+    }
+};
+
 // ===========================================================================
 
 static TempoMapTests tempoMapTests;
@@ -976,6 +1084,7 @@ static ClipLoopSlipTests clipLoopSlipTests;
 static LoopedRenderTests loopedRenderTests;
 static MidiLoopExpandTests midiLoopExpandTests;
 static CrossfadeHandleTests crossfadeHandleTests;
+static ChaosAutomationTests chaosAutomationTests;
 
 int main()
 {

@@ -1,4 +1,5 @@
 #include "TimelineView.h"
+#include "../Model/AutoGen.h"
 
 namespace dg
 {
@@ -745,15 +746,44 @@ public:
         {
             juce::PopupMenu m;
             m.addItem (1, "Clear all points");
-            m.showMenuAsync ({}, [this] (int r)
+            juce::PopupMenu gen;                       // chaos automation: canvas math on a lane
+            gen.addItem (10, "Attractor curve (Lorenz)");
+            gen.addItem (11, "Drunk walk");
+            gen.addItem (12, "Decaying ratchets");
+            m.addSubMenu ("Generate (loop region, else song)", gen);
+
+            // capture the view pointer + lane tree, never `this`: the menu
+            // callback can outlive this comp (any rebuild deletes it)
+            auto* view = &tv;
+            ValueTree ln = lane;
+            m.showMenuAsync ({}, [view, ln] (int r) mutable
             {
                 if (r == 1)
                 {
-                    for (int i = lane.getNumChildren(); --i >= 0;)
-                        if (lane.getChild (i).hasType (id::PT))
-                            lane.removeChild (i, &tv.session.undo);
-                    repaint();
+                    view->session.undo.beginNewTransaction ("clear automation");
+                    for (int i = ln.getNumChildren(); --i >= 0;)
+                        if (ln.getChild (i).hasType (id::PT))
+                            ln.removeChild (i, &view->session.undo);
+                    return;
                 }
+                if (r < 10 || r > 12) return;
+
+                auto tr = view->session.transport();
+                double t0 = tr[id::loopStart], t1 = tr[id::loopEnd];
+                if (! (bool) tr[id::loopOn] || t1 <= t0 + 1.0e-3)
+                {
+                    t0 = 0.0;
+                    t1 = 0.0;
+                    for (const auto& t : view->session.tracks())
+                        for (const auto& c : t.getChildWithName (id::CLIPS))
+                            t1 = juce::jmax (t1, (double) c[id::start] + (double) c[id::length]);
+                    t1 = juce::jmax (t1, view->engine.getTempoMap()->beatsToSeconds (32.0));
+                }
+                const auto kind = r == 10 ? autogen::Gen::lorenz
+                                : r == 11 ? autogen::Gen::drunk
+                                          : autogen::Gen::ratchet;
+                autogen::generate (view->session, *view->engine.getTempoMap(), ln, kind,
+                                   t0, t1, juce::Random::getSystemRandom().nextInt64());
             });
             return;
         }
