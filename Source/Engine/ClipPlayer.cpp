@@ -38,7 +38,8 @@ void ClipPlayerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         for (int ch = 0; ch < chans; ++ch)
             inputCopy.copyFrom (ch, 0, buffer, ch, 0, n);
 
-    if (auto* rs = rec.load(); rs != nullptr && armed.load() && engine.segRecordEnabled())
+    if (auto* rs = rec.load(); rs != nullptr && armed.load()
+                           && (engine.segRecordEnabled() || (rs->slotMode && engine.segIsPlaying())))
     {
         if (rs->needPassMark.exchange (false))
             if (rs->passes.size() < rs->passes.capacity())

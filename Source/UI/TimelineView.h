@@ -42,6 +42,7 @@ public:
 
     // "fx:rack" | "fx:builtin:<name>" | "fx:plug:<identifier>" -> insert/instrument
     void applyFxToTrack (ValueTree track, const String& fxId);
+    void dropSlotClip (const String& desc, juce::Point<int> canvasPos);   // from the SESSION grid
 
     void syncToolbar();                      // reflect ui.tool after keyboard switch
 

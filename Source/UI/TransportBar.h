@@ -6,13 +6,23 @@
 namespace dg
 {
 
-class TransportBar : public juce::Component, private juce::Timer
+class TransportBar : public juce::Component, private juce::Timer,
+                     public juce::DragAndDropTarget
 {
 public:
     TransportBar (AudioEngine&, SessionModel&, UIState&);
 
     void resized() override;
     void paint (juce::Graphics&) override;
+
+    // dragging a session slot over the transport flips to ARRANGE so the drop
+    // can land on the timeline (the views are never visible together)
+    bool isInterestedInDragSource (const SourceDetails& d) override
+    {
+        return d.description.toString().startsWith ("slotclip:");
+    }
+    void itemDragEnter (const SourceDetails&) override { if (onSetView) onSetView (0); }
+    void itemDropped (const SourceDetails&) override {}
 
 private:
     void timerCallback() override;
@@ -24,6 +34,7 @@ private:
 
 public:
     std::function<void()> onToggleView;
+    std::function<void(int)> onSetView;
     std::function<void()> onHelp;
     void setViewLabel (const String& s) { viewBtn.setButtonText (s); }
 

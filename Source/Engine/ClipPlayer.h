@@ -54,6 +54,8 @@ struct RecordSession
     std::unique_ptr<juce::AudioFormatWriter::ThreadedWriter> writer;
     std::atomic<juce::int64> written { 0 };
 
+    bool slotMode = false;                     // session-slot take: write while playing, no global record
+
     struct PassMark { juce::int64 fileOffset; double timelineStartSec; };
     std::vector<PassMark> passes;              // audio-thread push within reserved capacity
     std::atomic<bool> needPassMark { true };

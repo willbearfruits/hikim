@@ -11,6 +11,7 @@ namespace dg
 {
 
 class PluginHost;
+class PatcherProcessor;
 
 // The spine. Owns the device layer and the AudioProcessorGraph, drives the
 // graph from its own audio callback so the transport can split blocks at loop
@@ -67,9 +68,22 @@ public:
     int getTotalLatencySamples() const;
 
     // ---- session view (launch grid) ----
-    void launchSlot (ValueTree track, ValueTree clip);      // quantized to the launch grid
+    void launchSlot (ValueTree track, ValueTree clip, juce::int64 whenOverride = -1);   // quantized to the launch grid
     void stopTrackSession (const String& trackUid);
     void stopAllSession();
+
+    // ---- session slot recording (Phase C) ----
+    // punch in/out on launch-quantize boundaries; the finished take lands in the
+    // slot and immediately loops with its phase anchored at the punch-out point
+    void recordIntoSlot (ValueTree track, const String& sceneUid);
+    void stopSlotRecord (const String& trackUid);
+    int getSlotRecPhase (const String& trackUid, String& sceneOut) const;   // 0 none, 1 armed/pending, 2 rolling
+
+    // ---- capture the jam (Phase C) ----
+    // every slot launch/stop is logged; capture writes the log into the
+    // arrangement as real clips at the transport positions where they played
+    void captureSessionToArrangement();
+    bool hasJamToCapture() const { return ! jamLog.empty(); }
     struct SlotState { String playing, pending; };
     SlotState getSessionState (const String& trackUid);     // message thread
     std::atomic<double> launchQuantizeBeats { 4.0 };
@@ -82,8 +96,12 @@ public:
     }
 
     // ---- modulation (PATCH view) ----
-    // sources: 0..3 = LFO1..4, 4 = chaos (Lorenz), 5 = envelope follower
+    // sources: 0..3 = LFO1..4, 4 = chaos (Lorenz), 5 = envelope follower,
+    // 6.. = WIRES modout taps (dynamic; ids "wires:<insertUid>:<n>")
     static constexpr int kNumModSources = 6;
+    struct ModSourceInfo { String id, label; };
+    std::vector<ModSourceInfo> getModSources();                 // fixed six + live wires taps
+    float getModSourceValueById (const String& id);             // for cable glow / port LEDs
     // owner (optional out) receives the graph node the parameter lives on, so
     // callers can keep the processor alive for as long as they hold the pointer
     juce::AudioProcessorParameter* resolveParamTarget (const String& trackUid, const String& target,
@@ -220,6 +238,9 @@ private:
         MidiSourceProcessor* m = nullptr;
         juce::int64 when = 0, loopLen = 0;
         bool stop = false;
+        bool recBegin = false, recEnd = false;          // slot-record punch in/out
+        RecordSession* recSess = nullptr;               // audio slot record target
+        bool isRec() const { return recBegin || recEnd; }
     };
     struct SessUIState { String playing, pending; bool pendingStop = false; juce::int64 when = 0; };
     juce::int64 nextLaunchBoundary();
@@ -233,6 +254,26 @@ private:
     std::vector<SessionAction> sessActions;
     std::map<String, SessUIState> sessUI;                   // message thread only
     std::set<String> pendingBridges;                        // message thread only
+
+    // ---- slot recording state (message thread owns; audio thread sees only
+    //      the RecordSession via the source's rec atomic + punch actions) ----
+    struct SlotRec
+    {
+        String trackUid, sceneUid;
+        bool midi = false;
+        std::unique_ptr<RecordSession> rs;                  // audio takes only
+        juce::int64 startWhen = 0, stopWhen = -1;
+    };
+    std::map<String, std::unique_ptr<SlotRec>> slotRecs;    // by track uid
+    std::atomic<int> slotMidiRec { 0 };                     // gates midi capture without global record
+    void pollSlotRecs();                                    // hostedPump tick: finalize past punch-outs
+    void finalizeSlotRec (SlotRec&);
+
+    // ---- jam log (message thread): what played where, for capture ----
+    struct JamEntry { String trackUid; ValueTree clip; juce::int64 start = 0, stop = -1; };
+    std::vector<JamEntry> jamLog;
+    void jamLogLaunch (const String& uid, ValueTree clip, juce::int64 when);
+    void jamLogStop (const String& uid, juce::int64 when);
 
     // ---- recording ----
     void createRecordSessions();
@@ -340,9 +381,17 @@ private:
         bool hosted = false;                            // hosted plugin: param applied by the message-thread pump
         std::shared_ptr<std::atomic<float>> hostedVal, hostedApplied;
     };
+    struct PatchSrc
+    {
+        PatcherProcessor* proc = nullptr;
+        int idx = 0;
+        juce::AudioProcessorGraph::Node::Ptr owner;     // keeps the patcher alive while the snapshot lives
+        String id, label;
+    };
     struct ModRTState
     {
         std::vector<ModConn> conns;
+        std::vector<PatchSrc> patchSrcs;                // conn src >= 6 indexes here (src - 6)
         float lfoRate[4] { 1.0f, 0.5f, 2.0f, 4.0f };
         int lfoShape[4] {};
         float chaosRate = 1.0f;
@@ -378,7 +427,7 @@ private:
     {
         AudioEngine& e;
         explicit HostedPump (AudioEngine& en) : e (en) {}
-        void timerCallback() override { e.flushHostedParams(); }
+        void timerCallback() override { e.flushHostedParams(); e.pollSlotRecs(); }
     };
     HostedPump hostedPump { *this };
     std::array<std::atomic<float>, 6> modSrcValues {};

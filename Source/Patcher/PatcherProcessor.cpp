@@ -32,6 +32,7 @@ const std::vector<PatcherProcessor::Spec>& PatcherProcessor::specs()
         { "param", oParam, 0, 1, "1", "host knob P1-8" },
         { "oscin", oOscIn, 0, 1, "9000 /ruin", "OSC receive (port, /addr)" },
         { "oscout", oOscOut, 1, 0, "127.0.0.1 57120 /ruin/out", "OSC send (host, port, /addr)" },
+        { "modout", oModOut, 1, 0, "", "signal -> mod source in the PATCH bay" },
     };
     return s;
 }
@@ -178,6 +179,7 @@ void PatcherProcessor::compile()
         if (! done.count (uid))
             order.push_back (uid);
 
+    int modOutSeen = 0;
     for (const auto& uid : order)
     {
         auto& info = nodes[uid];
@@ -216,10 +218,17 @@ void PatcherProcessor::compile()
             case oOscOut:
                 o.ext = std::make_shared<std::atomic<float>> (0.0f);  // string args bind in rebuildOsc
                 break;
+            case oModOut:
+                if (modOutSeen < kMaxModOuts)
+                    o.modIdx = modOutSeen++;
+                break;
             default: break;
         }
         prog->objs.push_back (std::move (o));
     }
+
+    if (numModOuts.exchange (modOutSeen) != modOutSeen && onModOutsChanged != nullptr)
+        onModOutsChanged();             // message thread: compile runs via AsyncUpdater
 
     prog->numBufs = juce::jmax (1, bufCount);
     prog->bufs.setSize (prog->numBufs, juce::jmax (64, blockSize));
@@ -464,6 +473,20 @@ void PatcherProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
                     const float drive = juce::jmax (0.1f, o.a == 0.0f ? 1.0f : o.a);
                     for (int i = 0; i < n; ++i)
                         out0[i] = std::tanh ((i0 ? i0[i] : 0.0f) * drive);
+                }
+                break;
+
+            case oModOut:       // control-rate tap into the PATCH mod bay
+                if (o.modIdx >= 0)
+                {
+                    float mean = 0.0f;
+                    if (i0 != nullptr)
+                    {
+                        for (int i = 0; i < n; ++i) mean += i0[i];
+                        mean /= (float) juce::jmax (1, n);
+                    }
+                    o.z1 += 0.35f * (mean - o.z1);              // light smoothing across blocks
+                    modOutVals[(size_t) o.modIdx].store (juce::jlimit (-1.0f, 1.0f, o.z1));
                 }
                 break;
 

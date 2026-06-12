@@ -32,6 +32,10 @@ SessionGrid::SessionGrid (AudioEngine& e, SessionModel& s, UIState& u)
     followBtn.onClick = [this] { followOn = followBtn.getToggleState(); followFired = false; };
     addAndMakeVisible (followBtn);
 
+    captureBtn.setTooltip ("write the jam so far into the ARRANGE timeline as real clips, at the positions where they played");
+    captureBtn.onClick = [this] { engine.captureSessionToArrangement(); };
+    addAndMakeVisible (captureBtn);
+
     startTimerHz (15);
 }
 
@@ -210,13 +214,36 @@ void SessionGrid::paint (juce::Graphics& g)
 
             if (! clip.isValid())
             {
-                g.setColour (col::panel.withAlpha (hovered ? 0.9f : 0.5f));
-                g.fillRoundedRectangle (r.toFloat(), 3.0f);
-                if (hovered)
+                String recScene;
+                const int recPhase = engine.getSlotRecPhase (t[id::uid].toString(), recScene);
+                const bool recHere = recPhase > 0 && recScene == scene[id::uid].toString();
+                const bool armed = (bool) t[id::armed];
+
+                if (recHere)
                 {
-                    g.setColour (col::dim);
-                    g.drawText (t[id::type].toString() == "midi" ? "+" : "drop audio",
-                                r, juce::Justification::centred);
+                    g.setColour (col::record.withAlpha (recPhase == 2 ? (blink ? 0.55f : 0.40f)
+                                                                      : (blink ? 0.30f : 0.12f)));
+                    g.fillRoundedRectangle (r.toFloat(), 3.0f);
+                    g.setColour (col::text);
+                    g.setFont (juce::Font (juce::FontOptions (10.0f, juce::Font::bold)));
+                    g.drawText (recPhase == 2 ? "REC" : "REC...", r, juce::Justification::centred);
+                }
+                else
+                {
+                    g.setColour (col::panel.withAlpha (hovered ? 0.9f : 0.5f));
+                    g.fillRoundedRectangle (r.toFloat(), 3.0f);
+                    if (armed)
+                    {
+                        // armed track: empty cells are record targets
+                        g.setColour (col::record.withAlpha (hovered ? 0.95f : 0.45f));
+                        g.fillEllipse ((float) r.getCentreX() - 4.0f, (float) r.getCentreY() - 4.0f, 8.0f, 8.0f);
+                    }
+                    else if (hovered)
+                    {
+                        g.setColour (col::dim);
+                        g.drawText (t[id::type].toString() == "midi" ? "+" : "drop audio",
+                                    r, juce::Justification::centred);
+                    }
                 }
                 continue;
             }
@@ -322,19 +349,58 @@ void SessionGrid::mouseDown (const juce::MouseEvent& e)
     if (e.mods.isPopupMenu()) { showCellMenu (c.col, c.row); return; }
 
     auto& track = tracks[(size_t) c.col];
+    auto scene = session.scenes().getChild (c.row);
+
+    // clicking the cell that is recording punches out
+    String recScene;
+    if (engine.getSlotRecPhase (track[id::uid].toString(), recScene) > 0
+        && scene.isValid() && recScene == scene[id::uid].toString())
+    {
+        engine.stopSlotRecord (track[id::uid].toString());
+        return;
+    }
+
     auto clip = clipFor (c.col, c.row);
     if (clip.isValid())
     {
         engine.launchSlot (track, clip);
         return;
     }
+    // empty cell on an armed track records a take into the slot
+    if ((bool) track[id::armed] && scene.isValid())
+    {
+        engine.recordIntoSlot (track, scene[id::uid].toString());
+        return;
+    }
     // empty midi cell: create a loop and open it
     if (track[id::type].toString() == "midi")
     {
-        auto scene = session.scenes().getChild (c.row);
         auto created = createMidiSlotClip (track, scene[id::uid].toString());
         if (ui.openPianoRoll) ui.openPianoRoll (created);
     }
+}
+
+void SessionGrid::mouseDrag (const juce::MouseEvent& e)
+{
+    if (slotDragStarted || e.getDistanceFromDragStart() < 8) return;
+    auto c = cellAt (e.getMouseDownPosition());
+    if (c.header || c.sceneBtn || c.col < 0 || c.row < 0) return;
+    auto tracks = gridTracks();
+    if (c.col >= (int) tracks.size()) return;
+    if (! clipFor (c.col, c.row).isValid()) return;
+    auto scene = session.scenes().getChild (c.row);
+    if (! scene.isValid()) return;
+
+    slotDragStarted = true;
+    // drop targets: the ARRANGE timeline (hover the transport bar to flip views)
+    if (auto* dnd = juce::DragAndDropContainer::findParentDragContainerFor (this))
+        dnd->startDragging ("slotclip:" + tracks[(size_t) c.col][id::uid].toString()
+                            + ":" + scene[id::uid].toString(), this);
+}
+
+void SessionGrid::mouseUp (const juce::MouseEvent&)
+{
+    slotDragStarted = false;
 }
 
 ValueTree SessionGrid::createMidiSlotClip (ValueTree track, const String& sceneUid)
@@ -657,6 +723,8 @@ void SessionGrid::resized()
     stopAllBtn.setBounds (bar.removeFromLeft (80));
     bar.removeFromLeft (6);
     addSceneBtn.setBounds (bar.removeFromLeft (80));
+    bar.removeFromLeft (6);
+    captureBtn.setBounds (bar.removeFromLeft (84));
 }
 
 } // namespace dg

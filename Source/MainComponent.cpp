@@ -41,6 +41,7 @@ MainComponent::MainComponent()
         timeline->showTrackFxMenu (track, target);
     };
     transportBar->onToggleView = [this] { toggleView(); };
+    transportBar->onSetView = [this] (int v) { setView (v); };
     transportBar->setViewLabel ("SESSION");
     transportBar->onHelp = [this]
     {
@@ -426,7 +427,12 @@ void MainComponent::selectTab (const String& name)
 
 void MainComponent::toggleView()
 {
-    viewMode = (viewMode + 1) % 3;          // arrange -> session -> patcher -> ...
+    setView ((viewMode + 1) % 3);           // arrange -> session -> patcher -> ...
+}
+
+void MainComponent::setView (int v)
+{
+    viewMode = juce::jlimit (0, 2, v);
     static const char* next[] = { "SESSION", "PATCHER", "ARRANGE" };
     transportBar->setViewLabel (next[viewMode]);    // the button names the destination
     resized();

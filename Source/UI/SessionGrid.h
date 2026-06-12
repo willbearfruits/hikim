@@ -22,6 +22,8 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
@@ -52,6 +54,7 @@ private:
     ValueTree createMidiSlotClip (ValueTree track, const String& sceneUid);
     void launchScene (int row);
     void showCellMenu (int col, int row);
+    bool slotDragStarted = false;
     void timerCallback() override { advanceFollowIfDue(); repaint(); }
 
     AudioEngine& engine;
@@ -63,7 +66,8 @@ private:
     void advanceFollowIfDue();
 
     juce::ComboBox quantBox;
-    juce::TextButton stopAllBtn { "STOP ALL" }, addSceneBtn { "+ SCENE" }, followBtn { "FOLLOW" };
+    juce::TextButton stopAllBtn { "STOP ALL" }, addSceneBtn { "+ SCENE" }, followBtn { "FOLLOW" },
+                     captureBtn { "CAPTURE" };
     std::map<String, std::unique_ptr<juce::AudioThumbnail>> thumbs;
 
     // tracker-style scene chaining

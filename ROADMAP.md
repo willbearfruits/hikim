@@ -29,8 +29,11 @@ sentimental side — or the machinery both stand on.
   feedback, sah~, metro, param P1-8 host bridge, OSC in/out; Max-style canvas,
   patches saved as device state). EXTEND: midiin objects, abstractions,
   more objects on request - each is a small diff now.
-- **Phase C - capture & glue**: record into session slots, capture the session jam
-  into the arrangement, drag clips between views, patcher objects as host mod sources.
+- **Phase C - capture & glue**: DONE (record takes straight into session slots with
+  quantized punch in/out; CAPTURE writes the jam log into the arrangement as real
+  clips; slots drag onto the timeline - hover the transport to flip views - and
+  clips copy back via "To SESSION slot"; the WIRES `modout` object feeds the PATCH
+  bay as a live mod source).
 - **Phase D - the Jitter-shaped thing**: character-matrix visual objects rendering
   to a glyph window (Jitter bent toward characterglitch).
 - **Tracker view (mode four)**: a real tracker lens on the session - rows as ticks,

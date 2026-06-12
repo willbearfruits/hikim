@@ -36,9 +36,9 @@ private:
     class SourceNode;
     class TargetNode;
 
-    juce::Point<float> sourcePortPos (int srcIdx) const;
+    juce::Point<float> sourcePortPos (const String& srcId) const;
     juce::Point<float> targetPortPos (const String& targetUid) const;
-    static String srcName (int idx);
+    String srcLabel (const String& srcId) const;
     ValueTree modAt (juce::Point<float> p) const;       // cable hit test
     void addTargetMenu();
     void timerCallback() override
@@ -47,6 +47,8 @@ private:
         for (const auto& t : session.mods())
             if (t.hasType (id::MODTARGET)) ++n;
         if (n != targets.size()) rebuild();
+        else if ((int) engine.getModSources().size() != knownSources)
+            rebuild();                              // a wires modout tap appeared / vanished
         repaint();
     }
 
@@ -55,8 +57,9 @@ private:
     juce::TextButton addTargetBtn { "+ TARGET" };
 
     // cable drag state
-    int dragFromSrc = -1;
+    String dragFromSrc;                 // source id, empty = not dragging
     juce::Point<float> dragPos;
+    int knownSources = -1;              // refresh when wires taps appear/vanish
 
     // selected cable inspector
     ValueTree selectedMod;

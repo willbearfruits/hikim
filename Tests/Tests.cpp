@@ -410,6 +410,19 @@ struct PatcherTests : juce::UnitTest
         for (const auto& n : p4.patch)
             if (n[id::type].toString() == "osc~") ++oscCount;
         expectEquals (oscCount, 1);
+
+        beginTest ("modout taps the signal as a mod source");
+        PatcherProcessor p5;
+        p5.setPlayConfigDetails (2, 2, 48000.0, 256);
+        auto sigN = p5.addNode ("sig 0.8", 0, 0);
+        auto modN = p5.addNode ("modout", 0, 0);
+        p5.addCable (sigN[id::uid].toString(), 0, modN[id::uid].toString(), 0);
+        p5.prepareToPlay (48000.0, 256);
+        expectEquals (p5.getNumModOuts(), 1);
+        juce::AudioBuffer<float> b5 (2, 256);
+        for (int k = 0; k < 24; ++k) { b5.clear(); p5.processBlock (b5, midi); }
+        expect (std::abs (p5.modOut (0) - 0.8f) < 0.05f,
+                "tap follows the signal: " + String (p5.modOut (0)));
     }
 };
 

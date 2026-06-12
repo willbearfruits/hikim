@@ -414,6 +414,14 @@ public:
         if ((int) clip.getProperty (id::lane, 0) != 0)
             m.addItem (7, "Promote take to lane 0");
 
+        {
+            juce::PopupMenu toSlot;
+            auto scenes = tv.session.scenes();
+            for (int i = 0; i < scenes.getNumChildren(); ++i)
+                toSlot.addItem (100 + i, scenes.getChild (i)[id::name].toString());
+            m.addSubMenu ("To SESSION slot", toSlot);
+        }
+
         m.addSeparator();
         // capture the view pointer + clip tree, never `this`: the menu callback
         // can outlive this ClipComp (any rebuild deletes it)
@@ -466,6 +474,24 @@ public:
                         && (double) other[id::start] + (double) other[id::length] > (double) c[id::start])
                         other.setProperty (id::lane, myLane, &view->session.undo);
                 c.setProperty (id::lane, 0, &view->session.undo);
+            }
+            else if (r >= 100)
+            {
+                // copy this clip into a SESSION slot on its own track
+                auto scene = view->session.scenes().getChild (r - 100);
+                auto track = c.getParent().getParent();          // CLIPS -> TRACK
+                if (scene.isValid() && track.hasType (id::TRACK))
+                {
+                    auto map = view->engine.getTempoMap();
+                    auto sc = c.createCopy();
+                    sc.setProperty (id::uid, SessionModel::newUID(), nullptr);
+                    sc.setProperty (id::start, 0.0, nullptr);
+                    sc.setProperty (id::lane, 0, nullptr);
+                    const double beats = map->secondsToBeats ((double) c[id::start] + (double) c[id::length])
+                                       - map->secondsToBeats ((double) c[id::start]);
+                    sc.setProperty (id::loopBeats, juce::jmax (1.0, std::round (beats)), nullptr);
+                    view->session.setSlotClip (track, scene[id::uid].toString(), sc);
+                }
             }
         });
     }
@@ -863,12 +889,17 @@ public:
     bool isInterestedInDragSource (const SourceDetails& d) override
     {
         const String desc = d.description.toString();
-        return desc == "binfiles" || desc.startsWith ("fx:");
+        return desc == "binfiles" || desc.startsWith ("fx:") || desc.startsWith ("slotclip:");
     }
 
     void itemDropped (const SourceDetails& d) override
     {
         const String desc = d.description.toString();
+        if (desc.startsWith ("slotclip:"))
+        {
+            tv.dropSlotClip (desc, d.localPosition);
+            return;
+        }
         if (desc == "binfiles")
         {
             if (auto* ftc = dynamic_cast<juce::FileTreeComponent*> (d.sourceComponent.get()))
@@ -1274,6 +1305,36 @@ double TimelineView::snap (double sec) const
 {
     auto vt = session.video();
     return snapSeconds (sec, ui.snapMode, *engine.getTempoMap(), (double) vt.getProperty (id::fps, 25.0));
+}
+
+void TimelineView::dropSlotClip (const String& desc, juce::Point<int> canvasPos)
+{
+    // "slotclip:<trackUid>:<sceneUid>" dragged over from the SESSION grid
+    const String rest = desc.fromFirstOccurrenceOf ("slotclip:", false, false);
+    const String tuid = rest.upToFirstOccurrenceOf (":", false, false);
+    const String sceneUid = rest.fromFirstOccurrenceOf (":", false, false);
+    auto srcTrack = session.findTrack (tuid);
+    if (! srcTrack.isValid()) return;
+    auto slotClip = session.getSlotClip (srcTrack, sceneUid);
+    if (! slotClip.isValid()) return;
+
+    // land on the row under the cursor when types match, else on the slot's own track
+    ValueTree target = srcTrack;
+    const int rowIdx = rowIndexAtY (canvasPos.y);
+    if (rowIdx >= 0 && rowIdx < (int) rows.size() && ! rows[(size_t) rowIdx].lane.isValid())
+    {
+        auto t = rows[(size_t) rowIdx].track;
+        if (t.isValid() && t[id::type].toString() == srcTrack[id::type].toString())
+            target = t;
+    }
+
+    session.undo.beginNewTransaction ("drop slot clip");
+    auto c = slotClip.createCopy();
+    c.setProperty (id::uid, SessionModel::newUID(), nullptr);
+    c.setProperty (id::start, juce::jmax (0.0, snap (xToTime (canvasPos.x))), nullptr);
+    c.setProperty (id::lane, 0, nullptr);
+    c.removeProperty (id::loopBeats, nullptr);
+    SessionModel::clipsOf (target).appendChild (c, &session.undo);
 }
 
 double TimelineView::contentLengthSec() const

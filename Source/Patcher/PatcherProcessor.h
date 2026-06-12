@@ -22,7 +22,7 @@ public:
     {
         oAdc, oDac, oOsc, oPhasor, oNoise, oLfo, oMul, oAdd, oLores, oHipass,
         oDelay, oTanh, oSah, oEnv, oMetro, oRandom, oScale, oSig, oParam,
-        oOscIn, oOscOut, oUnknown
+        oOscIn, oOscOut, oModOut, oUnknown
     };
     struct Spec { const char* name; Obj type; int ins, outs; const char* defaults; const char* desc; };
     static const std::vector<Spec>& specs();
@@ -57,6 +57,12 @@ public:
 
     juce::AudioParameterFloat* hostParams[8] {};
 
+    // ---- modout taps: this patcher as a mod source in the PATCH bay ----
+    static constexpr int kMaxModOuts = 8;
+    int getNumModOuts() const                { return numModOuts.load(); }
+    float modOut (int i) const               { return modOutVals[(size_t) juce::jlimit (0, kMaxModOuts - 1, i)].load(); }
+    std::function<void()> onModOutsChanged;  // engine refreshes its mod-source list
+
 private:
     struct PObj
     {
@@ -71,6 +77,7 @@ private:
         juce::Random rng;
         std::shared_ptr<std::atomic<float>> ext;     // oscin value / oscout tap
         std::atomic<float>* hostParam = nullptr;
+        int modIdx = -1;                             // modout slot
     };
     struct Program
     {
@@ -94,6 +101,9 @@ private:
     juce::SpinLock progLock;
     std::shared_ptr<Program> pendingProg, rtProg;
     std::vector<std::shared_ptr<Program>> graveyard;
+
+    std::array<std::atomic<float>, kMaxModOuts> modOutVals {};
+    std::atomic<int> numModOuts { 0 };
 
     double sampleRate = 48000.0;
     int blockSize = 512;

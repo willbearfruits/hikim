@@ -3,20 +3,23 @@
 namespace dg
 {
 
-static const char* kSrcIds[] = { "lfo1", "lfo2", "lfo3", "lfo4", "chaos", "follower" };
-
-String PatchView::srcName (int idx)
+String PatchView::srcLabel (const String& srcId) const
 {
-    static const char* names[] = { "LFO 1", "LFO 2", "LFO 3", "LFO 4", "CHAOS", "FOLLOW" };
-    return names[juce::jlimit (0, 5, idx)];
+    for (const auto& s : engine.getModSources())
+        if (s.id == srcId) return s.label;
+    return srcId;
 }
 
 // =========================================================================== SourceNode
 class PatchView::SourceNode : public juce::Component
 {
 public:
-    SourceNode (PatchView& p, int idx) : pv (p), srcIdx (idx)
+    SourceNode (PatchView& p, String idIn, String labelIn)
+        : srcId (std::move (idIn)), label (std::move (labelIn)), pv (p)
     {
+        srcIdx = srcId == "lfo1" ? 0 : srcId == "lfo2" ? 1 : srcId == "lfo3" ? 2
+               : srcId == "lfo4" ? 3 : srcId == "chaos" ? 4
+               : srcId == "follower" ? 5 : 6;
         auto modsTree = pv.session.mods();
 
         if (srcIdx < 4)
@@ -48,7 +51,7 @@ public:
             rate.onValueChange = [this] { pv.session.mods().setProperty ("chaosRate", rate.getValue(), nullptr); };
             addAndMakeVisible (rate);
         }
-        else
+        else if (srcIdx == 5)
         {
             trackBox.setTextWhenNothingSelected ("track...");
             int idNum = 1;
@@ -72,6 +75,7 @@ public:
             };
             addAndMakeVisible (trackBox);
         }
+        // srcIdx 6: a WIRES modout tap - label + port only
     }
 
     void paint (juce::Graphics& g) override
@@ -84,10 +88,10 @@ public:
 
         g.setColour (col::text);
         g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)));
-        g.drawText (srcName (srcIdx), 6, 3, getWidth() - 24, 14, juce::Justification::left);
+        g.drawText (label, 6, 3, getWidth() - 24, 14, juce::Justification::left);
 
         // output port, glowing with the live source value
-        const float v = pv.engine.getModSourceValue (srcIdx);
+        const float v = pv.engine.getModSourceValueById (srcId);
         auto port = portBounds();
         g.setColour (col::accent.withAlpha (0.35f + 0.65f * std::abs (v)));
         g.fillEllipse (port);
@@ -103,7 +107,7 @@ public:
     void mouseDown (const juce::MouseEvent& e) override
     {
         // start a cable from anywhere on the node
-        pv.dragFromSrc = srcIdx;
+        pv.dragFromSrc = srcId;
         pv.dragPos = e.getEventRelativeTo (&pv).position;
         pv.repaint();
     }
@@ -127,10 +131,11 @@ public:
         }
         else if (srcIdx == 4)
             rate.setBounds (b.withSizeKeepingCentre (34, juce::jmin (34, b.getHeight())));
-        else
+        else if (srcIdx == 5)
             trackBox.setBounds (b.reduced (0, 8));
     }
 
+    String srcId, label;
     int srcIdx;
 
 private:
@@ -268,9 +273,11 @@ void PatchView::rebuild()
 {
     sources.clear();
     targets.clear();
-    for (int i = 0; i < AudioEngine::kNumModSources; ++i)
+    auto srcList = engine.getModSources();
+    knownSources = (int) srcList.size();
+    for (auto& sd : srcList)
     {
-        auto* n = sources.add (new SourceNode (*this, i));
+        auto* n = sources.add (new SourceNode (*this, sd.id, sd.label));
         addAndMakeVisible (n);
     }
     for (const auto& t : session.mods())
@@ -306,10 +313,10 @@ void PatchView::resized()
     }
 }
 
-juce::Point<float> PatchView::sourcePortPos (int srcIdx) const
+juce::Point<float> PatchView::sourcePortPos (const String& srcId) const
 {
     for (auto* sn : sources)
-        if (sn->srcIdx == srcIdx)
+        if (sn->srcId == srcId)
             return sn->getBounds().toFloat().getTopLeft() + sn->portBounds().getCentre();
     return {};
 }
@@ -346,17 +353,13 @@ void PatchView::paintOverChildren (juce::Graphics& g)
     {
         if (! m.hasType (id::MOD)) continue;
         const String src = m[id::src].toString();
-        int srcIdx = 5;
-        for (int i = 0; i < 6; ++i)
-            if (src == kSrcIds[i]) srcIdx = i;
-
-        const auto a = sourcePortPos (srcIdx);
+        const auto a = sourcePortPos (src);
         const auto b = targetPortPos (m[id::target].toString());
         if (a.isOrigin() || b.isOrigin()) continue;
 
         const float amount = (float) (double) m.getProperty (id::amount, 0.5);
         const bool selected = m == selectedMod;
-        const float live = std::abs (engine.getModSourceValue (srcIdx)) * std::abs (amount);
+        const float live = std::abs (engine.getModSourceValueById (src)) * std::abs (amount);
 
         g.setColour ((amount >= 0 ? col::accent : col::clipMidi)
                          .withAlpha (0.45f + 0.55f * live)
@@ -364,7 +367,7 @@ void PatchView::paintOverChildren (juce::Graphics& g)
         g.strokePath (cablePath (a, b), juce::PathStrokeType (selected ? 3.0f : 1.6f + 1.4f * std::abs (amount)));
     }
 
-    if (dragFromSrc >= 0)
+    if (dragFromSrc.isNotEmpty())
     {
         g.setColour (col::text.withAlpha (0.8f));
         g.strokePath (cablePath (sourcePortPos (dragFromSrc), dragPos), juce::PathStrokeType (1.6f));
@@ -376,11 +379,8 @@ ValueTree PatchView::modAt (juce::Point<float> p) const
     for (const auto& m : session.mods())
     {
         if (! m.hasType (id::MOD)) continue;
-        const String src = m[id::src].toString();
-        int srcIdx = 5;
-        for (int i = 0; i < 6; ++i)
-            if (src == kSrcIds[i]) srcIdx = i;
-        auto path = cablePath (sourcePortPos (srcIdx), targetPortPos (m[id::target].toString()));
+        auto path = cablePath (sourcePortPos (m[id::src].toString()),
+                               targetPortPos (m[id::target].toString()));
         juce::Point<float> nearest;
         path.getNearestPoint (p, nearest);
         if (nearest.getDistanceFrom (p) < 8.0f)
@@ -401,11 +401,9 @@ void PatchView::mouseDown (const juce::MouseEvent& e)
             return;
         }
         selectedMod = m;
-        int srcIdx = 5;
-        for (int i = 0; i < 6; ++i)
-            if (m[id::src].toString() == kSrcIds[i]) srcIdx = i;
         auto t = session.mods().getChildWithProperty (id::uid, m[id::target]);
-        inspectorLabel.setText (srcName (srcIdx) + " -> " + t[id::name].toString(), juce::dontSendNotification);
+        inspectorLabel.setText (srcLabel (m[id::src].toString()) + " -> " + t[id::name].toString(),
+                                juce::dontSendNotification);
         amountSl.setValue ((double) m.getProperty (id::amount, 0.5), juce::dontSendNotification);
         inspectorLabel.setVisible (true);
         amountSl.setVisible (true);
@@ -424,15 +422,15 @@ void PatchView::mouseDrag (const juce::MouseEvent&) {}
 
 void PatchView::mouseUp (const juce::MouseEvent& e)
 {
-    if (dragFromSrc >= 0)
+    if (dragFromSrc.isNotEmpty())
         endCableDrag (e.position);
 }
 
 void PatchView::endCableDrag (juce::Point<float> p)
 {
-    const int src = dragFromSrc;
-    dragFromSrc = -1;
-    if (src < 0) { repaint(); return; }
+    const String src = dragFromSrc;
+    dragFromSrc.clear();
+    if (src.isEmpty()) { repaint(); return; }
 
     for (auto* tn : targets)
         if (tn->getBounds().toFloat().contains (p))
@@ -440,7 +438,7 @@ void PatchView::endCableDrag (juce::Point<float> p)
             session.undo.beginNewTransaction ("patch cable");
             ValueTree m (id::MOD);
             m.setProperty (id::uid, SessionModel::newUID(), nullptr);
-            m.setProperty (id::src, kSrcIds[src], nullptr);
+            m.setProperty (id::src, src, nullptr);
             m.setProperty (id::target, tn->target[id::uid].toString(), nullptr);
             m.setProperty (id::amount, 0.5, nullptr);
             session.mods().appendChild (m, &session.undo);

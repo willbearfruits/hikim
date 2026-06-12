@@ -870,6 +870,21 @@ void AudioEngine::rebuildMods()
     auto modsTree = session.mods();
     auto next = std::make_shared<ModRTState>();
 
+    // WIRES modout taps become live mod sources (ids "wires:<insertUid>:<n>")
+    for (const auto& t : session.tracks())
+        for (const auto& ins : SessionModel::insertsOf (t))
+        {
+            auto node = insertNodes.find (ins[id::uid].toString());
+            if (node == insertNodes.end()) continue;
+            auto* pp = dynamic_cast<PatcherProcessor*> (node->second->getProcessor());
+            if (pp == nullptr) continue;
+            pp->onModOutsChanged = [this] { scheduleRebuild (rebuild::mods); };
+            for (int i = 0; i < pp->getNumModOuts(); ++i)
+                next->patchSrcs.push_back ({ pp, i, node->second,
+                                             "wires:" + ins[id::uid].toString() + ":" + String (i),
+                                             t[id::name].toString() + " WIRES " + String (i + 1) });
+        }
+
     for (int i = 0; i < 4; ++i)
     {
         next->lfoRate[i] = (float) (double) modsTree.getProperty ("lfo" + String (i + 1) + "rate",
@@ -900,8 +915,17 @@ void AudioEngine::rebuildMods()
             c.hostedApplied = std::make_shared<std::atomic<float>> (std::numeric_limits<float>::quiet_NaN());
         }
         const String src = m[id::src].toString();
-        c.src = src == "lfo1" ? 0 : src == "lfo2" ? 1 : src == "lfo3" ? 2 : src == "lfo4" ? 3
-              : src == "chaos" ? 4 : 5;
+        if (src.startsWith ("wires:"))
+        {
+            int found = -1;
+            for (int i = 0; i < (int) next->patchSrcs.size(); ++i)
+                if (next->patchSrcs[(size_t) i].id == src) { found = i; break; }
+            if (found < 0) continue;                    // tap removed from the patch
+            c.src = kNumModSources + found;
+        }
+        else
+            c.src = src == "lfo1" ? 0 : src == "lfo2" ? 1 : src == "lfo3" ? 2 : src == "lfo4" ? 3
+                  : src == "chaos" ? 4 : 5;
         c.amount = (float) (double) m.getProperty (id::amount, 0.5);
         c.uid = m[id::uid].toString();
         const float baseVal = m.hasProperty (id::base) ? (float) (double) m[id::base]
@@ -972,13 +996,53 @@ void AudioEngine::applyMods (juce::int64 pos, int numSamples)
     ++applyingAutomation;
     for (const auto& c : mods->conns)
     {
-        const float nv = juce::jlimit (0.0f, 1.0f, c.base->load() + c.amount * vals[c.src]);
+        const float sv = c.src < kNumModSources
+                             ? vals[c.src]
+                             : mods->patchSrcs[(size_t) (c.src - kNumModSources)].proc->modOut (
+                                   mods->patchSrcs[(size_t) (c.src - kNumModSources)].idx);
+        const float nv = juce::jlimit (0.0f, 1.0f, c.base->load() + c.amount * sv);
         if (c.hosted)
             c.hostedVal->store (nv);    // VST3 controller calls are message-thread only; the pump delivers
         else if (std::abs (c.param->getValue() - nv) > 0.0008f)
             c.param->setValueNotifyingHost (nv);
     }
     --applyingAutomation;
+}
+
+std::vector<AudioEngine::ModSourceInfo> AudioEngine::getModSources()
+{
+    std::vector<ModSourceInfo> out = { { "lfo1", "LFO 1" }, { "lfo2", "LFO 2" },
+                                       { "lfo3", "LFO 3" }, { "lfo4", "LFO 4" },
+                                       { "chaos", "CHAOS" }, { "follower", "FOLLOW" } };
+    std::shared_ptr<const ModRTState> mods;
+    {
+        juce::SpinLock::ScopedLockType sl (modLock);
+        mods = pendingMods;
+    }
+    if (mods != nullptr)
+        for (const auto& ps : mods->patchSrcs)
+            out.push_back ({ ps.id, ps.label });
+    return out;
+}
+
+float AudioEngine::getModSourceValueById (const String& srcId)
+{
+    if (! srcId.startsWith ("wires:"))
+    {
+        static const char* fixed[] = { "lfo1", "lfo2", "lfo3", "lfo4", "chaos", "follower" };
+        for (int i = 0; i < kNumModSources; ++i)
+            if (srcId == fixed[i]) return modSrcValues[(size_t) i].load();
+        return 0.0f;
+    }
+    std::shared_ptr<const ModRTState> mods;
+    {
+        juce::SpinLock::ScopedLockType sl (modLock);
+        mods = pendingMods;
+    }
+    if (mods != nullptr)
+        for (const auto& ps : mods->patchSrcs)
+            if (ps.id == srcId) return ps.proc->modOut (ps.idx);
+    return 0.0f;
 }
 
 void AudioEngine::detachAutomation()
@@ -1181,6 +1245,8 @@ void AudioEngine::stop()
     flushMidiPending = true;
     if (wasRecording)
         finalizeRecordings();
+    for (auto& e : jamLog)                       // the jam pauses with the clock
+        if (e.stop < 0) e.stop = transportPos.load();
     if (onTransportStateChanged) onTransportStateChanged();
 }
 
@@ -1575,7 +1641,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* input, i
             if (meta.samplePosition >= done && meta.samplePosition < done + len)
                 midiSeg.addEvent (meta.getMessage(), meta.samplePosition - done);
 
-        if (recording && anyArmedMidiAtRecord && playing)
+        if (playing && ((recording && anyArmedMidiAtRecord) || slotMidiRec.load() > 0))
         {
             juce::SpinLock::ScopedTryLockType tl (midiRecLock);
             if (tl.isLocked())
@@ -1682,13 +1748,17 @@ juce::int64 AudioEngine::nextLaunchBoundary()
 void AudioEngine::scheduleSessionAction (SessionAction act)
 {
     juce::SpinLock::ScopedLockType sl (sessActLock);
+    // replace same-kind actions only: a punch-out may coexist with a launch on
+    // the same source (both fire at the boundary); a punch-out replaces a
+    // not-yet-fired punch-in, which cancels the recording cleanly
     sessActions.erase (std::remove_if (sessActions.begin(), sessActions.end(),
-        [&] (const SessionAction& s) { return s.a == act.a && s.m == act.m; }), sessActions.end());
+        [&] (const SessionAction& s) { return s.a == act.a && s.m == act.m && s.isRec() == act.isRec(); }),
+        sessActions.end());
     if (sessActions.size() < 64)
         sessActions.push_back (act);
 }
 
-void AudioEngine::launchSlot (ValueTree track, ValueTree clip)
+void AudioEngine::launchSlot (ValueTree track, ValueTree clip, juce::int64 whenOverride)
 {
     const String uid = track[id::uid];
     auto it = trackNodes.find (uid);
@@ -1697,8 +1767,10 @@ void AudioEngine::launchSlot (ValueTree track, ValueTree clip)
     auto map = getTempoMap();
     const String type = track[id::type];
 
+    if (slotRecs.count (uid)) stopSlotRecord (uid);     // launching elsewhere punches out
+
     SessionAction act;
-    act.when = nextLaunchBoundary();
+    act.when = whenOverride >= 0 ? whenOverride : nextLaunchBoundary();
 
     if (type == "audio")
     {
@@ -1785,6 +1857,7 @@ void AudioEngine::launchSlot (ValueTree track, ValueTree clip)
         return;
 
     scheduleSessionAction (act);
+    jamLogLaunch (uid, clip, act.when);
     auto& st = sessUI[uid];
     st.pending = clip[id::uid].toString();
     st.pendingStop = false;
@@ -1794,6 +1867,7 @@ void AudioEngine::launchSlot (ValueTree track, ValueTree clip)
 
 void AudioEngine::stopTrackSession (const String& uid)
 {
+    if (slotRecs.count (uid)) { stopSlotRecord (uid); return; }   // stop = punch out while recording
     auto it = trackNodes.find (uid);
     if (it == trackNodes.end() || it->second.source == nullptr) return;
 
@@ -1805,10 +1879,305 @@ void AudioEngine::stopTrackSession (const String& uid)
     if (act.a == nullptr && act.m == nullptr) return;
 
     scheduleSessionAction (act);
+    jamLogStop (uid, act.when);
     auto& st = sessUI[uid];
     st.pending.clear();
     st.pendingStop = true;
     st.when = act.when;
+}
+
+// ============================================================ jam log / capture
+
+void AudioEngine::jamLogLaunch (const String& uid, ValueTree clip, juce::int64 when)
+{
+    jamLogStop (uid, when);
+    if (jamLog.size() > 4096)       // endless jams: forget the oldest closed entries
+        jamLog.erase (std::remove_if (jamLog.begin(), jamLog.begin() + 1024,
+                                      [] (const JamEntry& e) { return e.stop >= 0; }),
+                      jamLog.begin() + 1024);
+    jamLog.push_back ({ uid, clip, when, -1 });
+}
+
+void AudioEngine::jamLogStop (const String& uid, juce::int64 when)
+{
+    for (auto& e : jamLog)
+        if (e.trackUid == uid && e.stop < 0)
+            e.stop = when;
+    jamLog.erase (std::remove_if (jamLog.begin(), jamLog.end(),
+                                  [] (const JamEntry& e) { return e.stop >= 0 && e.stop <= e.start; }),
+                  jamLog.end());
+}
+
+void AudioEngine::captureSessionToArrangement()
+{
+    if (jamLog.empty()) return;
+    const juce::int64 now = transportPos.load();
+    auto map = getTempoMap();
+    session.undo.beginNewTransaction ("capture session");
+    int made = 0;
+
+    for (auto& e : jamLog)
+    {
+        const juce::int64 stop = e.stop < 0 ? now : e.stop;
+        if (stop <= e.start || ! e.clip.isValid()) continue;
+        auto track = session.findTrack (e.trackUid);
+        if (! track.isValid()) continue;
+
+        // the loop length the launch used
+        juce::int64 loopLen;
+        if (e.clip[id::type].toString() == "midi")
+        {
+            const double spb = 60.0 / map->bpmAtBeat (map->samplesToBeats (e.start)) * currentSR;
+            loopLen = (juce::int64) std::llround (
+                juce::jmax (1.0, (double) e.clip.getProperty (id::loopBeats, 4.0)) * spb);
+        }
+        else
+            loopLen = juce::jmax ((juce::int64) 64, secToSamples ((double) e.clip[id::length]));
+        if (loopLen <= 0) continue;
+
+        // one timeline clip per loop pass, last pass truncated where it stopped
+        auto clips = SessionModel::clipsOf (track);
+        for (juce::int64 s = e.start; s < stop && made < 2048; s += loopLen, ++made)
+        {
+            auto c = e.clip.createCopy();
+            c.setProperty (id::uid, SessionModel::newUID(), nullptr);
+            c.setProperty (id::start, samplesToSec (s), nullptr);
+            c.setProperty (id::length, samplesToSec (juce::jmin (loopLen, stop - s)), nullptr);
+            c.setProperty (id::lane, 0, nullptr);
+            c.removeProperty (id::loopBeats, nullptr);
+            clips.appendChild (c, &session.undo);
+        }
+    }
+
+    // closed entries are spent; still-looping slots keep logging from here
+    jamLog.erase (std::remove_if (jamLog.begin(), jamLog.end(),
+                                  [] (const JamEntry& e) { return e.stop >= 0; }), jamLog.end());
+    for (auto& e : jamLog) e.start = now;
+}
+
+// ============================================================ slot recording
+
+void AudioEngine::recordIntoSlot (ValueTree track, const String& sceneUid)
+{
+    const String uid = track[id::uid].toString();
+    const String type = track[id::type].toString();
+    if (transportRecording.load() || recordPending.load()) return;      // global record owns the inputs
+    if (slotRecs.count (uid)) return;
+    auto it = trackNodes.find (uid);
+    if (it == trackNodes.end() || it->second.source == nullptr) return;
+    if (! (bool) track[id::armed]) return;
+
+    if (! transportPlaying.load()) play();              // need a clock to punch against
+
+    auto sr = std::make_unique<SlotRec>();
+    sr->trackUid = uid;
+    sr->sceneUid = sceneUid;
+    sr->startWhen = nextLaunchBoundary();
+
+    SessionAction act;
+    act.when = sr->startWhen;
+    act.recBegin = true;
+
+    if (type == "midi")
+    {
+        act.m = dynamic_cast<MidiSourceProcessor*> (it->second.source->getProcessor());
+        if (act.m == nullptr) return;
+        sr->midi = true;
+        if (slotMidiRec.fetch_add (1) == 0)             // first midi take: fresh capture buffer
+        {
+            juce::SpinLock::ScopedLockType sl (midiRecLock);
+            midiRecEvents.clear();
+            midiRecEvents.reserve (1 << 14);
+        }
+    }
+    else if (type == "audio")
+    {
+        act.a = dynamic_cast<ClipPlayerProcessor*> (it->second.source->getProcessor());
+        if (act.a == nullptr) return;
+
+        auto dir = session.assetsDir();
+        dir.createDirectory();
+        auto rs = std::make_unique<RecordSession>();
+        rs->trackUid = uid;
+        rs->sampleRate = currentSR;
+        rs->slotMode = true;
+        rs->file = dir.getChildFile (track[id::name].toString().replaceCharacters (" /\\:", "----")
+                                     + "-slot-" + juce::Time::getCurrentTime().formatted ("%y%m%d-%H%M%S")
+                                     + ".wav").getNonexistentSibling();
+        rs->passes.reserve (8);
+        rs->peakCapacity = 1 << 16;
+        rs->peaks.calloc ((size_t) rs->peakCapacity);
+        if (auto out = rs->file.createOutputStream())
+        {
+            juce::WavAudioFormat wav;
+            if (auto* writer = wav.createWriterFor (out.get(), currentSR, 2, 32, {}, 0))
+            {
+                out.release();
+                rs->writer = std::make_unique<juce::AudioFormatWriter::ThreadedWriter> (writer, recordThread, 1 << 17);
+            }
+        }
+        if (rs->writer == nullptr) return;
+        act.recSess = rs.get();
+        sr->rs = std::move (rs);
+    }
+    else
+        return;
+
+    scheduleSessionAction (act);
+    slotRecs[uid] = std::move (sr);
+}
+
+void AudioEngine::stopSlotRecord (const String& uid)
+{
+    auto it = slotRecs.find (uid);
+    if (it == slotRecs.end() || it->second->stopWhen >= 0) return;
+    auto& sr = *it->second;
+
+    SessionAction act;
+    act.when = juce::jmax (nextLaunchBoundary(), sr.startWhen);
+    act.recEnd = true;
+    auto tn = trackNodes.find (uid);
+    if (tn != trackNodes.end() && tn->second.source != nullptr)
+    {
+        act.a = dynamic_cast<ClipPlayerProcessor*> (tn->second.source->getProcessor());
+        act.m = dynamic_cast<MidiSourceProcessor*> (tn->second.source->getProcessor());
+    }
+    scheduleSessionAction (act);    // same-kind dedup: cancels a punch-in that hasn't fired yet
+    sr.stopWhen = act.when;
+}
+
+int AudioEngine::getSlotRecPhase (const String& uid, String& sceneOut) const
+{
+    auto it = slotRecs.find (uid);
+    if (it == slotRecs.end()) return 0;
+    sceneOut = it->second->sceneUid;
+    return transportPos.load() >= it->second->startWhen ? 2 : 1;
+}
+
+void AudioEngine::pollSlotRecs()
+{
+    if (slotRecs.empty()) return;
+    const juce::int64 pos = transportPos.load();
+    const bool playing = transportPlaying.load();
+
+    for (auto it = slotRecs.begin(); it != slotRecs.end();)
+    {
+        auto& sr = *it->second;
+        if (sr.stopWhen < 0 && ! playing)
+        {
+            // transport stopped under the take: punch out right here
+            auto tn = trackNodes.find (sr.trackUid);
+            if (! sr.midi && tn != trackNodes.end() && tn->second.source != nullptr)
+                if (auto* cp = dynamic_cast<ClipPlayerProcessor*> (tn->second.source->getProcessor()))
+                    cp->rec.store (nullptr);
+            sr.stopWhen = pos;
+        }
+        if (sr.stopWhen >= 0 && (pos >= sr.stopWhen || ! playing))
+        {
+            std::shared_ptr<SlotRec> owned (std::move (it->second));
+            it = slotRecs.erase (it);
+            if (owned->midi) slotMidiRec.fetch_sub (1);
+            runAfterAudioDrain ([this, owned] { finalizeSlotRec (*owned); });
+        }
+        else
+            ++it;
+    }
+}
+
+void AudioEngine::finalizeSlotRec (SlotRec& sr)
+{
+    auto track = session.findTrack (sr.trackUid);
+    if (! track.isValid()) { if (sr.rs != nullptr) { sr.rs->writer.reset(); sr.rs->file.deleteFile(); } return; }
+
+    auto map = getTempoMap();
+    const double startBeat = map->samplesToBeats (sr.startWhen);
+    const double endBeat = map->samplesToBeats (sr.stopWhen);
+    const double loopBeats = endBeat - startBeat;
+    if (loopBeats < 0.05)                               // cancelled before the first boundary
+    {
+        if (sr.rs != nullptr) { sr.rs->writer.reset(); sr.rs->file.deleteFile(); }
+        return;
+    }
+
+    auto scene = session.scenes().getChildWithProperty (id::uid, sr.sceneUid);
+    const String takeName = (scene.isValid() ? scene[id::name].toString() : String ("scene")) + " take";
+    session.undo.beginNewTransaction ("slot record");
+
+    if (sr.midi)
+    {
+        ValueTree c (id::CLIP);
+        c.setProperty (id::uid, SessionModel::newUID(), nullptr);
+        c.setProperty (id::type, "midi", nullptr);
+        c.setProperty (id::name, takeName, nullptr);
+        c.setProperty (id::start, 0.0, nullptr);
+        c.setProperty (id::length, map->beatsToSeconds (startBeat + loopBeats)
+                                   - map->beatsToSeconds (startBeat), nullptr);
+        c.setProperty (id::loopBeats, loopBeats, nullptr);
+        ValueTree notes (id::NOTES);
+
+        std::vector<TimedMidi> evts;
+        {
+            juce::SpinLock::ScopedLockType sl (midiRecLock);
+            for (const auto& e : midiRecEvents)
+                if (e.pos >= sr.startWhen && e.pos < sr.stopWhen)
+                    evts.push_back (e);
+        }
+        std::map<int, std::pair<double, int>> open;     // note -> (beat, vel)
+        for (const auto& e : evts)
+        {
+            const double beat = map->samplesToBeats (e.pos) - startBeat;
+            if (e.msg.isNoteOn())
+                open[e.msg.getNoteNumber()] = { beat, e.msg.getVelocity() };
+            else if (e.msg.isNoteOff())
+            {
+                auto o = open.find (e.msg.getNoteNumber());
+                if (o == open.end()) continue;
+                ValueTree nt (id::NOTE);
+                nt.setProperty (id::pitch, e.msg.getNoteNumber(), nullptr);
+                nt.setProperty (id::beat, o->second.first, nullptr);
+                nt.setProperty (id::len, juce::jmax (0.05, beat - o->second.first), nullptr);
+                nt.setProperty (id::vel, o->second.second, nullptr);
+                notes.appendChild (nt, nullptr);
+                open.erase (o);
+            }
+        }
+        for (const auto& [note, ov] : open)             // held through punch-out: run to the loop end
+        {
+            ValueTree nt (id::NOTE);
+            nt.setProperty (id::pitch, note, nullptr);
+            nt.setProperty (id::beat, ov.first, nullptr);
+            nt.setProperty (id::len, juce::jmax (0.05, loopBeats - ov.first), nullptr);
+            nt.setProperty (id::vel, ov.second, nullptr);
+            notes.appendChild (nt, nullptr);
+        }
+        c.appendChild (notes, nullptr);
+        session.setSlotClip (track, sr.sceneUid, c);
+        auto stored = session.getSlotClip (track, sr.sceneUid);
+        launchSlot (track, stored, sr.stopWhen);        // phase-anchored at the punch-out: seamless-ish
+    }
+    else
+    {
+        sr.rs->writer.reset();                          // flush + close
+        if (sr.rs->written.load() <= 0) { sr.rs->file.deleteFile(); return; }
+
+        ValueTree c (id::CLIP);
+        c.setProperty (id::uid, SessionModel::newUID(), nullptr);
+        c.setProperty (id::type, "audio", nullptr);
+        c.setProperty (id::name, takeName, nullptr);
+        c.setProperty (id::file, sr.rs->file.getFullPathName(), nullptr);
+        c.setProperty (id::fileSR, currentSR, nullptr);
+        c.setProperty (id::start, 0.0, nullptr);
+        c.setProperty (id::length, samplesToSec (sr.stopWhen - sr.startWhen), nullptr);
+        c.setProperty (id::offset, 0, nullptr);
+        c.setProperty (id::clipGain, 0.0, nullptr);
+        c.setProperty (id::fadeIn, 0, nullptr);
+        c.setProperty (id::fadeOut, 0, nullptr);
+        c.setProperty (id::stretch, 1.0, nullptr);
+        c.setProperty (id::loopBeats, loopBeats, nullptr);
+        session.setSlotClip (track, sr.sceneUid, c);
+        auto stored = session.getSlotClip (track, sr.sceneUid);
+        launchSlot (track, stored, sr.stopWhen);        // phase-anchored at the punch-out: seamless-ish
+    }
 }
 
 void AudioEngine::stopAllSession()
@@ -1868,12 +2237,16 @@ void AudioEngine::applySessionActions (juce::int64 pos)
         if (pos < s.when) continue;
         if (s.a != nullptr)
         {
-            if (s.stop) s.a->sessEngaged = false;
+            if (s.recBegin)      { s.a->sessEngaged = false; if (s.recSess != nullptr) s.a->rec.store (s.recSess); }
+            else if (s.recEnd)   s.a->rec.store (nullptr);
+            else if (s.stop)     s.a->sessEngaged = false;
             else { s.a->sessStart = s.when; s.a->sessLen = s.loopLen; s.a->sessEngaged = true; }
         }
         if (s.m != nullptr)
         {
-            if (s.stop) s.m->sessEngaged = false;
+            if (s.recBegin)      s.m->sessEngaged = false;   // live thru records; capture is engine-side
+            else if (s.recEnd)   {}
+            else if (s.stop)     s.m->sessEngaged = false;
             else { s.m->sessStart = s.when; s.m->sessLen = s.loopLen; s.m->sessEngaged = true; }
         }
         sessActions.erase (sessActions.begin() + i);

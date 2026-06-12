@@ -77,6 +77,7 @@ private:
     };
 
     void toggleView();
+    void setView (int v);
     void applyTheme (bool light);
     void applyScale (double scale);
     void doNew();
