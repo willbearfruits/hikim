@@ -18,7 +18,9 @@ Project page: <https://willbearfruits.github.io/hikim/>
 
 ## Downloads
 
-Prebuilt artifacts are tracked in this repository:
+Prebuilt artifacts are available on the
+[`v0.1.0` release](https://github.com/willbearfruits/hikim/releases/tag/v0.1.0)
+and are also tracked in this repository:
 
 | Platform | File | Notes |
 | --- | --- | --- |
