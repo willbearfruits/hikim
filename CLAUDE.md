@@ -21,10 +21,21 @@ cmake --build build -j$(nproc)                 # builds app + tests
 ./build/ruin_tests_artefacts/Release/ruin_tests   # headless suite (~30s); exits non-zero on failure
 ```
 
+Windows: the README's Visual Studio generator path may fail ("could not find any
+instance of Visual Studio" even when VS is installed, and BuildTools' 14.36 toolset
+links broken). Use Ninja from a pinned vcvars environment instead:
+
+```bat
+"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat" -vcvars_ver=14.44
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j 12
+build\ruin_tests_artefacts\Release\ruin_tests.exe
+```
+
 There is no per-test filter; the suite runs everything (juce::UnitTest classes in
 `Tests/Tests.cpp`). RubberBand is fetched at configure time (single-file vendored build)
 unless a system `rubberband` pkg-config package exists. Crashes write a backtrace to
-`the temp dir as `hikim-crash.log`` (handler installed in `Main.cpp`).
+`hikim-crash.log` in the system temp dir (handler installed in `Main.cpp`).
 
 ## Architecture: one tree, everything reacts
 
@@ -89,8 +100,10 @@ never frees memory** (BufferingAudioReaders especially). Session-view launches a
   RackModules.h/.cpp class + params in `createLayout` + entry in `kModuleIds/Names`.
 - **WIRES** (Source/Patcher/): patch ValueTree compiled (`compile()`) into a topo-sorted
   `Program` of `PObj`s; feedback legal only through `delay~` (deferred write pass).
-  New object = `Obj` enum + `specs()` row (name/ports/defaults/desc) + a `processBlock`
-  case (~20 lines). `param N` bridges 8 host parameters.
+  New object = `Obj` enum + `specs()` row (name/ports/defaults/desc + NODES.md `Family`
+  and per-port type chars `s`/`n`/`e`) + a `processBlock` case (~20 lines). The palette
+  groups by family; ports and cables draw by port type. `param N` bridges 8 host
+  parameters.
 - **Clip editing** lives UI-free in `Source/Model/ClipOps.*` so tests drive exactly what
   the timeline does. Extend there, not in TimelineView.
 - **Media**: `AudioEngine::mediaFileFor/createAnyReader` — JUCE decoders first, else a
@@ -101,8 +114,10 @@ never frees memory** (BufferingAudioReaders especially). Session-view launches a
   bay)/PianoRoll/Sample/Files/Fx panels. Cross-view state + callbacks live in `UIState`.
 
 Deliberate growth points are marked `// EXTEND:` at the exact line — grep for them before
-designing something new; `ROADMAP.md` holds the owner-approved phase plan (Phase C:
-slot recording + capture-to-arrangement is next).
+designing something new. `ROADMAP.md` holds the owner-approved phase plan (Phases A–C of
+the Live/Max build-out are done); the active workstream is the NODES unified-patching arc,
+specced in `NODES.md` (phases E1–E4). If a `CONTINUE.md` exists at the repo root it is a
+mid-round session handoff — read it first, finish it, delete it.
 
 ## Conventions
 
