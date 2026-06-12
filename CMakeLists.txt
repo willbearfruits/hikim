@@ -86,6 +86,12 @@ target_compile_definitions(dawglitch PRIVATE
     JUCE_MODAL_LOOPS_PERMITTED=1
     JUCE_DISPLAY_SPLASH_SCREEN=0)   # GPLv3 build
 
+# MSVC: windows.h's min/max macros break std::numeric_limits<>::max() in
+# RubberBand (C2589) - NOMINMAX is required for the vendored single-file build.
+if(MSVC)
+    target_compile_definitions(dawglitch PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+
 # ---- RubberBand: pitch-locked time-stretch ----------------------------------
 # System lib if present, else vendored single-file build (GPL, like this app).
 find_package(PkgConfig QUIET)
@@ -156,6 +162,9 @@ target_compile_definitions(ruin_tests PRIVATE
     JUCE_USE_MP3AUDIOFORMAT=1
     JUCE_MODAL_LOOPS_PERMITTED=1
     JUCE_DISPLAY_SPLASH_SCREEN=0)
+if(MSVC)
+    target_compile_definitions(ruin_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
 if(RUBBERBAND_FOUND)
     target_link_libraries(ruin_tests PRIVATE PkgConfig::RUBBERBAND)
     target_compile_definitions(ruin_tests PRIVATE DG_HAVE_RUBBERBAND=1)
