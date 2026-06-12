@@ -23,7 +23,7 @@ public:
     {
         oAdc, oDac, oOsc, oPhasor, oNoise, oLfo, oMul, oAdd, oLores, oHipass,
         oDelay, oTanh, oSah, oEnv, oMetro, oRandom, oScale, oSig, oParam,
-        oOscIn, oOscOut, oModOut, oNumber, oChan, oUnknown
+        oOscIn, oOscOut, oModOut, oNumber, oChan, oStrip, oClock, oUnknown
     };
     // NODES.md object families (palette sections + box/cable colours)
     enum Family { famSource, famEffect, famMath, famTime, famRouting };
@@ -90,13 +90,17 @@ public:
         return it != chanTaps.end() ? it->second : nullptr;
     }
 
+    // ---- strip: same resolution story, but for driving gain/pan/mute ----
+    using StripCtlProvider = std::function<std::shared_ptr<StripControl> (const String& ref)>;
+    void setStripCtlProvider (StripCtlProvider f) { stripCtlProvider = std::move (f); compile(); }
+
 private:
     struct PObj
     {
         int type = oUnknown;
         float a = 0, b = 0, c = 0;
-        int in0 = -1, in1 = -1;
-        int out0 = -1, out1 = -1;
+        int in0 = -1, in1 = -1, in2 = -1;
+        int out0 = -1, out1 = -1, out2 = -1, out3 = -1;
         double ph = 0;
         float z1 = 0, z2 = 0, held = 0, lastTrig = 0;
         std::vector<float> line;
@@ -104,6 +108,7 @@ private:
         juce::Random rng;
         std::shared_ptr<std::atomic<float>> ext;     // oscin value / oscout tap
         std::shared_ptr<ChanTap> tap;                // chan~ source ring
+        std::shared_ptr<StripControl> ctl;           // strip target
         std::atomic<float>* hostParam = nullptr;
         int modIdx = -1;                             // modout slot
     };
@@ -134,6 +139,7 @@ private:
     std::atomic<int> numModOuts { 0 };
     std::map<String, std::shared_ptr<std::atomic<float>>> numberVals;   // message thread map
     ChanTapProvider chanTapProvider;
+    StripCtlProvider stripCtlProvider;
     std::map<String, std::shared_ptr<ChanTap>> chanTaps;                // node uid -> resolved ring
 
     double sampleRate = 48000.0;

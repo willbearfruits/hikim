@@ -32,9 +32,11 @@ const std::vector<PatcherProcessor::Spec>& PatcherProcessor::specs()
         { "param", oParam, 0, 1, "1", "host knob P1-8", famMath, "", "n" },
         { "metro", oMetro, 1, 1, "2", "pulse train (hz)", famTime, "n", "e" },
         { "random", oRandom, 1, 1, "", "random 0..1 on trigger", famTime, "e", "n" },
+        { "clock", oClock, 0, 4, "", "transport: bpm, beat 0-1, bar 0-1, bar #", famTime, "", "nnnn" },
         { "oscin", oOscIn, 0, 1, "9000 /ruin", "OSC receive (port, /addr)", famRouting, "", "n" },
         { "oscout", oOscOut, 1, 0, "127.0.0.1 57120 /ruin/out", "OSC send (host, port, /addr)", famRouting, "n", "" },
         { "modout", oModOut, 1, 0, "", "signal -> mod source in the PATCH bay", famRouting, "s", "" },
+        { "strip", oStrip, 3, 3, "1", "drive a channel: gain dB, pan, mute (track#/name)", famRouting, "nnn", "nnn" },
     };
     return s;
 }
@@ -135,7 +137,7 @@ void PatcherProcessor::compile()
     prog->sr = sampleRate;
     chanTaps.clear();
 
-    struct NodeInfo { ValueTree tree; int objIdx = -1; int outBuf[2] = { -1, -1 }; };
+    struct NodeInfo { ValueTree tree; int objIdx = -1; int outBuf[4] = { -1, -1, -1, -1 }; };
     std::map<String, NodeInfo> nodes;
 
     int bufCount = 0;
@@ -202,15 +204,21 @@ void PatcherProcessor::compile()
         o.c = args.size() > 2 ? args[2].getFloatValue() : 0.0f;
         o.out0 = info.outBuf[0];
         o.out1 = info.outBuf[1];
+        o.out2 = info.outBuf[2];
+        o.out3 = info.outBuf[3];
 
         for (const auto& cb : patch)
         {
             if (! cb.hasType (kCableId) || cb[kDst].toString() != uid) continue;
             const String src = cb[id::src];
             if (! nodes.count (src)) continue;
-            const int buf = nodes[src].outBuf[juce::jlimit (0, 1, (int) cb[kSrcPort])];
-            if ((int) cb[kDstPort] == 0) o.in0 = buf;
-            else o.in1 = buf;
+            const int buf = nodes[src].outBuf[juce::jlimit (0, 3, (int) cb[kSrcPort])];
+            switch ((int) cb[kDstPort])
+            {
+                case 0:  o.in0 = buf; break;
+                case 1:  o.in1 = buf; break;
+                default: o.in2 = buf; break;
+            }
         }
 
         switch (o.type)
@@ -243,6 +251,10 @@ void PatcherProcessor::compile()
                 chanTaps[uid] = o.tap;               // editor meter face reads this
                 break;
             }
+            case oStrip:
+                o.ctl = stripCtlProvider != nullptr
+                            ? stripCtlProvider (args.size() > 0 ? args[0] : "1") : nullptr;
+                break;
             default: break;
         }
         prog->objs.push_back (std::move (o));
@@ -404,6 +416,55 @@ void PatcherProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
                     if (out1) juce::FloatVectorOperations::clear (out1, n);
                 }
                 break;
+
+            case oStrip:    // inlets seize gain/pan/mute; outlets report them
+            {
+                const float* i2 = o.in2 >= 0 ? bufs.getReadPointer (o.in2) : nullptr;
+                float* out2 = bp (o.out2);
+                if (o.ctl != nullptr)
+                {
+                    const int st = o.ctl->blockStamp.load();
+                    if (i0) { o.ctl->gainDb.store (i0[n - 1]); o.ctl->gainStamp.store (st); }
+                    if (i1) { o.ctl->pan.store    (i1[n - 1]); o.ctl->panStamp.store  (st); }
+                    if (i2) { o.ctl->mute.store   (i2[n - 1]); o.ctl->muteStamp.store (st); }
+                    if (out0) juce::FloatVectorOperations::fill (out0, o.ctl->curGainDb.load(), n);
+                    if (out1) juce::FloatVectorOperations::fill (out1, o.ctl->curPan.load(), n);
+                    if (out2) juce::FloatVectorOperations::fill (out2, o.ctl->curMute.load(), n);
+                }
+                else
+                {
+                    if (out0) juce::FloatVectorOperations::clear (out0, n);
+                    if (out1) juce::FloatVectorOperations::clear (out1, n);
+                    if (out2) juce::FloatVectorOperations::clear (out2, n);
+                }
+                break;
+            }
+
+            case oClock:    // transport as numbers: bpm, beat phase, bar phase, bar #
+            {
+                float bpm = 0.0f, beatPh = 0.0f, barPh = 0.0f, barNum = 0.0f;
+                if (auto* ph = getPlayHead())
+                    if (auto posOpt = ph->getPosition())
+                    {
+                        bpm = (float) posOpt->getBpm().orFallback (0.0);
+                        const double ppq = posOpt->getPpqPosition().orFallback (0.0);
+                        beatPh = (float) (ppq - std::floor (ppq));
+                        const auto ts = posOpt->getTimeSignature()
+                                            .orFallback (juce::AudioPlayHead::TimeSignature());
+                        const double beatsPerBar = ts.numerator * 4.0 / juce::jmax (1, ts.denominator);
+                        const double barStart = posOpt->getPpqPositionOfLastBarStart().orFallback (0.0);
+                        barPh = (float) juce::jlimit (0.0, 1.0, (ppq - barStart)
+                                                                / juce::jmax (1.0e-9, beatsPerBar));
+                        barNum = (float) posOpt->getBarCount().orFallback (0);
+                    }
+                float* out2 = bp (o.out2);
+                float* out3 = bp (o.out3);
+                if (out0) juce::FloatVectorOperations::fill (out0, bpm, n);
+                if (out1) juce::FloatVectorOperations::fill (out1, beatPh, n);
+                if (out2) juce::FloatVectorOperations::fill (out2, barPh, n);
+                if (out3) juce::FloatVectorOperations::fill (out3, barNum, n);
+                break;
+            }
 
             case oOsc:
             case oPhasor:

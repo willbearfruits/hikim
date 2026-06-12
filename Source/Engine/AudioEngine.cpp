@@ -790,6 +790,21 @@ void AudioEngine::updateTransportFromTree()
 
 // ============================================================ lookups
 
+ValueTree AudioEngine::resolveTrackRef (const String& ref) const
+{
+    const int wanted = ref.getIntValue();           // numeric = 1-based, visible order
+    int idx = 0;                                    // (master sits last; video skipped)
+    for (const auto& t : session.tracks())
+    {
+        if (t[id::type].toString() == "video") continue;
+        ++idx;
+        if (wanted > 0 ? idx == wanted
+                       : t[id::name].toString().equalsIgnoreCase (ref))
+            return t;
+    }
+    return {};
+}
+
 ChannelStripProcessor* AudioEngine::getStrip (const String& uid) const
 {
     auto it = trackNodes.find (uid);
@@ -879,24 +894,21 @@ void AudioEngine::rebuildMods()
             auto* pp = dynamic_cast<PatcherProcessor*> (node->second->getProcessor());
             if (pp == nullptr) continue;
             pp->onModOutsChanged = [this] { scheduleRebuild (rebuild::mods); };
-            // chan~ refs re-resolve here after every rebuild (strips may be new)
+            // chan~/strip refs re-resolve here after every rebuild (strips may be new)
             pp->setChanTapProvider ([this] (const String& ref, bool pre)
                 -> std::shared_ptr<ChanTap>
             {
-                const int wanted = ref.getIntValue();        // numeric = 1-based track #
-                int idx = 0;
-                for (const auto& t : session.tracks())
-                {
-                    if (t[id::type].toString() == "video") continue;
-                    ++idx;
-                    if (wanted > 0 ? idx == wanted
-                                   : t[id::name].toString().equalsIgnoreCase (ref))
-                    {
-                        if (auto* st = getStrip (t[id::uid].toString()))
-                            return pre ? st->tapPre : st->tapPost;
-                        return nullptr;
-                    }
-                }
+                auto t = resolveTrackRef (ref);
+                if (auto* st = t.isValid() ? getStrip (t[id::uid].toString()) : nullptr)
+                    return pre ? st->tapPre : st->tapPost;
+                return nullptr;
+            });
+            pp->setStripCtlProvider ([this] (const String& ref)
+                -> std::shared_ptr<StripControl>
+            {
+                auto t = resolveTrackRef (ref);
+                if (auto* st = t.isValid() ? getStrip (t[id::uid].toString()) : nullptr)
+                    return st->control;
                 return nullptr;
             });
             for (int i = 0; i < pp->getNumModOuts(); ++i)

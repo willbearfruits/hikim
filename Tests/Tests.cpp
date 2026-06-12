@@ -495,6 +495,38 @@ struct PatcherTests : juce::UnitTest
         p8.processBlock (b8, midi);
         expect (b8.getMagnitude (0, 0, 256) < 1.0e-9f
                 && b8.getMagnitude (1, 0, 256) < 1.0e-9f, "no tap, no sound");
+
+        beginTest ("strip object drives gain and reports current values");
+        PatcherProcessor p9;
+        p9.setPlayConfigDetails (2, 2, 48000.0, 256);
+        auto ctl = std::make_shared<StripControl>();
+        ctl->curPan.store (0.3f);
+        p9.setStripCtlProvider ([ctl] (const String& ref)
+                                { return ref == "1" ? ctl : nullptr; });
+        auto numG  = p9.addNode ("number -12", 0, 0);
+        auto strN  = p9.addNode ("strip 1", 0, 0);
+        auto modT  = p9.addNode ("modout", 0, 0);
+        p9.addCable (numG[id::uid].toString(), 0, strN[id::uid].toString(), 0);   // gain dB inlet
+        p9.addCable (strN[id::uid].toString(), 1, modT[id::uid].toString(), 0);   // pan outlet
+        p9.prepareToPlay (48000.0, 256);
+        juce::AudioBuffer<float> b9 (2, 256);
+        for (int k = 0; k < 24; ++k) { b9.clear(); p9.processBlock (b9, midi); }
+        expectWithinAbsoluteError (ctl->gainDb.load(), -12.0f, 1.0e-4f);
+        expectEquals (ctl->gainStamp.load(), ctl->blockStamp.load());   // fresh seizure
+        expect (ctl->panStamp.load() < 0, "unconnected pan inlet never stamps");
+        expect (std::abs (p9.modOut (0) - 0.3f) < 0.02f,
+                "pan outlet reports the strip's published value: " + String (p9.modOut (0)));
+
+        beginTest ("clock without a playhead runs silent");
+        PatcherProcessor p10;
+        p10.setPlayConfigDetails (2, 2, 48000.0, 256);
+        auto clkN = p10.addNode ("clock", 0, 0);
+        auto modC = p10.addNode ("modout", 0, 0);
+        p10.addCable (clkN[id::uid].toString(), 0, modC[id::uid].toString(), 0);
+        p10.prepareToPlay (48000.0, 256);
+        juce::AudioBuffer<float> b10 (2, 256);
+        for (int k = 0; k < 8; ++k) { b10.clear(); p10.processBlock (b10, midi); }
+        expect (std::abs (p10.modOut (0)) < 1.0e-6f, "no playhead, bpm 0");
     }
 };
 

@@ -24,9 +24,21 @@ void ChannelStripProcessor::prepareToPlay (double sr, int)
 void ChannelStripProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     const int n = buffer.getNumSamples();
-    const bool muted = mute->get() || soloMuted.load() || forceMute.load();
-    const float g = muted ? 0.0f : juce::Decibels::decibelsToGain (gainDb->get(), -60.0f);
-    const float p = pan->get();
+
+    // WIRES `strip` seizure: fresh stamps override the params, stale ones release
+    const int stamp = control->blockStamp.fetch_add (1) + 1;
+    auto fresh = [stamp] (const std::atomic<int>& s) { return stamp - s.load() <= 1; };
+    const bool muted = (fresh (control->muteStamp) ? control->mute.load() > 0.5f : mute->get())
+                       || soloMuted.load() || forceMute.load();
+    const float gdb = fresh (control->gainStamp)
+                          ? juce::jlimit (-60.0f, 12.0f, control->gainDb.load()) : gainDb->get();
+    const float g = muted ? 0.0f : juce::Decibels::decibelsToGain (gdb, -60.0f);
+    const float p = fresh (control->panStamp)
+                        ? juce::jlimit (-1.0f, 1.0f, control->pan.load()) : pan->get();
+    control->curGainDb.store (gdb);
+    control->curPan.store (p);
+    control->curMute.store (muted ? 1.0f : 0.0f);
+
     smGainL.setTargetValue (g * (p <= 0.0f ? 1.0f : 1.0f - p));
     smGainR.setTargetValue (g * (p >= 0.0f ? 1.0f : 1.0f + p));
 

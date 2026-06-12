@@ -68,4 +68,18 @@ struct ChanTap
     std::atomic<int> wp { 0 };
 };
 
+// Patch-driven channel strip control (WIRES `strip` object). The patcher
+// writes a target value stamped with the strip's block counter; the strip
+// honours it only while the stamp stays fresh (<= 1 block old), so deleting
+// the cable or the object releases the fader within a block — freshness IS
+// the lifecycle, no driven-flag bookkeeping to unwind. cur* flow the other
+// way: the strip publishes its effective values for `strip` outlets.
+struct StripControl
+{
+    std::atomic<int>   blockStamp { 0 };                    // strip bumps per block
+    std::atomic<float> gainDb { 0 }, pan { 0 }, mute { 0 };
+    std::atomic<int>   gainStamp { -9 }, panStamp { -9 }, muteStamp { -9 };
+    std::atomic<float> curGainDb { 0 }, curPan { 0 }, curMute { 0 };
+};
+
 } // namespace dg

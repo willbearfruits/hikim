@@ -62,6 +62,7 @@ public:
 
     // ---- lookups for UI ----
     ChannelStripProcessor* getStrip (const String& trackUid) const;
+    ValueTree resolveTrackRef (const String& ref) const;   // WIRES chan~/strip: "2" | name | "master"
     SendProcessor* getSend (const String& trackUid, int which) const;
     juce::AudioProcessor* getInsertProcessor (const String& insertUid) const;
     juce::AudioProcessor* getInstrumentFor (const String& trackUid) const;

@@ -58,6 +58,8 @@ public:
     // published every block for WIRES chan~ (shared so patch programs outlive rebuilds)
     std::shared_ptr<ChanTap> tapPre  = std::make_shared<ChanTap>();
     std::shared_ptr<ChanTap> tapPost = std::make_shared<ChanTap>();
+    // WIRES `strip` drives gain/pan/mute through here while its stamps stay fresh
+    std::shared_ptr<StripControl> control = std::make_shared<StripControl>();
 
 private:
     juce::SmoothedValue<float> smGainL, smGainR;
