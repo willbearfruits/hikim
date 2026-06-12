@@ -76,6 +76,19 @@ operators `blur# edge# invert# thresh# scroll# mix# feedback#`; audio→glyph
 `scope# sono# vu#`; glyph→audio `scan#`; glyph→number `cell#`; render target
 `screen#` (dockable panel or window). `#` faces show live matrix thumbnails.
 
+## The one canvas (how unification lands)
+
+`NodeCanvas` (Source/UI/) is the shared surface: navigation (ctrl-wheel zoom
+about the cursor, wheel/drag pan), the dot grid, the cable bezier, LOD via
+`zoom`. Views stay owners of their boxes (ordinary child components) and feed
+the canvas through a small Delegate (paint cables, double-click, drop, popup).
+WIRES rides it now; the PATCH bay and PATCHER-mode adopt it next, keeping
+their own models. The altitude decides the undo stack: device patches stay
+device state, while canvas edits that change the SESSION (routing, strip
+patching at the PATCHER altitude) go through the session tree with the global
+UndoManager. The palette becomes shared chrome fed by a per-altitude object
+set.
+
 ## Zoom & LOD
 
 Ctrl-wheel/pinch zooms the canvas. Box LODs: far = chip (name + meter), mid =

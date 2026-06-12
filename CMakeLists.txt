@@ -58,6 +58,7 @@ target_sources(dawglitch PRIVATE
     Source/Patcher/PatcherProcessor.cpp
     Source/Patcher/PatcherEditor.cpp
     Source/UI/Look.cpp
+    Source/UI/NodeCanvas.cpp
     Source/UI/TransportBar.cpp
     Source/UI/TimelineView.cpp
     Source/UI/PianoRoll.cpp
@@ -161,7 +162,8 @@ target_sources(ruin_tests PRIVATE
     Source/Rack/RackEditor.cpp
     Source/Patcher/PatcherProcessor.cpp
     Source/Patcher/PatcherEditor.cpp
-    Source/UI/Look.cpp)
+    Source/UI/Look.cpp
+    Source/UI/NodeCanvas.cpp)
 target_include_directories(ruin_tests PRIVATE Source)
 target_compile_definitions(ruin_tests PRIVATE
     JUCE_WEB_BROWSER=0

@@ -305,136 +305,55 @@ private:
     float valueAtDragStart = 0.0f;
 };
 
-// =========================================================================== CanvasComp
-// The zoomable, pannable surface the nodes live on (TouchDesigner navigation:
-// ctrl-wheel / pinch zooms about the cursor, wheel pans, drag empty space pans).
-class PatcherEditor::CanvasComp : public juce::Component
-{
-public:
-    explicit CanvasComp (PatcherEditor& ed) : editor (ed)
-    {
-        setSize (8000, 8000);
-        setWantsKeyboardFocus (false);
-    }
-
-    void applyView()
-    {
-        setTransform (juce::AffineTransform::scale (zoom));
-        setTopLeftPosition (pan);
-        editor.repaint();
-    }
-
-    void zoomAbout (juce::Point<float> canvasPt, float newZoom)
-    {
-        newZoom = juce::jlimit (0.35f, 2.5f, newZoom);
-        const auto inParent = pan.toFloat() + canvasPt * zoom;     // anchor stays put
-        zoom = newZoom;
-        pan = (inParent - canvasPt * zoom).toInt();
-        applyView();
-    }
-
-    void paint (juce::Graphics& g) override
-    {
-        g.fillAll (col::bg);
-        g.setColour (col::line.withAlpha (0.25f));
-        for (int x = 0; x < getWidth(); x += 40)        // quiet dot grid
-            for (int y = 0; y < getHeight(); y += 40)
-                g.fillRect (x, y, 1, 1);
-    }
-
-    void paintOverChildren (juce::Graphics& g) override
-    {
-        for (const auto& c : editor.patcher.patch)
-        {
-            if (! c.hasType (kCableId)) continue;
-            const auto a = editor.outletPos (c[id::src].toString(), (int) c[kSrcPort]);
-            const auto b = editor.inletPos (c[kDst].toString(), (int) c[kDstPort]);
-            if (a.isOrigin() || b.isOrigin()) continue;
-            // NODES.md cable table: signal thick, number thin solid, event thin
-            char t = 's';
-            for (auto* nc : editor.nodeComps)
-                if (nc->uid() == c[id::src].toString())
-                { t = portType (nc->node[id::type].toString(), true, (int) c[kSrcPort]); break; }
-            g.setColour (cableColour (t).withAlpha (t == 's' ? 0.8f : 0.9f));
-            g.strokePath (cablePath (a, b), juce::PathStrokeType (t == 's' ? 2.4f : 1.3f));
-        }
-        if (editor.draggingCable)
-        {
-            g.setColour (col::text.withAlpha (0.8f));
-            g.strokePath (cablePath (editor.cableFrom, editor.cableTo), juce::PathStrokeType (1.6f));
-        }
-    }
-
-    static juce::Path cablePath (juce::Point<float> a, juce::Point<float> b)
-    {
-        juce::Path p;
-        p.startNewSubPath (a);
-        const float dy = juce::jmax (30.0f, std::abs (b.y - a.y) * 0.5f);
-        p.cubicTo (a.translated (0, dy), b.translated (0, -dy), b);
-        return p;
-    }
-
-    void mouseDown (const juce::MouseEvent& e) override
-    {
-        if (e.mods.isPopupMenu())
-        {
-            auto c = editor.cableAt (e.position);
-            if (c.isValid())
-                editor.patcher.patch.removeChild (c, nullptr);
-            repaint();
-            return;
-        }
-        panAtDragStart = pan;       // drag empty canvas to pan
-    }
-
-    void mouseDrag (const juce::MouseEvent& e) override
-    {
-        pan = panAtDragStart + (e.getOffsetFromDragStart().toFloat() * zoom).toInt();
-        applyView();
-    }
-
-    void mouseUp (const juce::MouseEvent& e) override
-    {
-        if (editor.draggingCable)
-            editor.endCable (e.position);
-    }
-
-    void mouseDoubleClick (const juce::MouseEvent& e) override
-    {
-        editor.objEntry.setBounds (e.x, e.y, 180, 22);
-        editor.objEntry.setText ({});
-        editor.objEntry.setVisible (true);
-        editor.objEntry.grabKeyboardFocus();
-    }
-
-    void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
-    {
-        if (e.mods.isCtrlDown() || e.mods.isCommandDown())
-        {
-            zoomAbout (e.position, zoom * (1.0f + w.deltaY * 0.8f));
-            return;
-        }
-        pan += juce::Point<int> ((int) ((e.mods.isShiftDown() ? w.deltaY : w.deltaX) * 240.0f),
-                                 (int) ((e.mods.isShiftDown() ? 0.0f : w.deltaY) * 240.0f));
-        applyView();
-    }
-
-    void mouseMagnify (const juce::MouseEvent& e, float scaleFactor) override
-    {
-        zoomAbout (e.position, zoom * scaleFactor);
-    }
-
-    float zoom = 1.0f;
-    juce::Point<int> pan;
-
-private:
-    PatcherEditor& editor;
-    juce::Point<int> panAtDragStart;
-};
+// ============================================== NodeCanvas::Delegate (WIRES)
 
 float PatcherEditor::canvasZoom() const
 {
     return canvas != nullptr ? canvas->zoom : 1.0f;
+}
+
+void PatcherEditor::paintCables (juce::Graphics& g)
+{
+    for (const auto& c : patcher.patch)
+    {
+        if (! c.hasType (kCableId)) continue;
+        const auto a = outletPos (c[id::src].toString(), (int) c[kSrcPort]);
+        const auto b = inletPos (c[kDst].toString(), (int) c[kDstPort]);
+        if (a.isOrigin() || b.isOrigin()) continue;
+        // NODES.md cable table: signal thick, number thin solid, event thin
+        char t = 's';
+        for (auto* nc : nodeComps)
+            if (nc->uid() == c[id::src].toString())
+            { t = portType (nc->node[id::type].toString(), true, (int) c[kSrcPort]); break; }
+        g.setColour (cableColour (t).withAlpha (t == 's' ? 0.8f : 0.9f));
+        g.strokePath (NodeCanvas::cablePath (a, b), juce::PathStrokeType (t == 's' ? 2.4f : 1.3f));
+    }
+    if (draggingCable)
+    {
+        g.setColour (col::text.withAlpha (0.8f));
+        g.strokePath (NodeCanvas::cablePath (cableFrom, cableTo), juce::PathStrokeType (1.6f));
+    }
+}
+
+void PatcherEditor::canvasPopup (juce::Point<float> p)
+{
+    auto c = cableAt (p);
+    if (c.isValid())
+        patcher.patch.removeChild (c, nullptr);
+}
+
+void PatcherEditor::canvasMouseUp (juce::Point<float> p)
+{
+    if (draggingCable)
+        endCable (p);
+}
+
+void PatcherEditor::canvasDoubleClicked (juce::Point<int> p)
+{
+    objEntry.setBounds (p.x, p.y, 180, 22);
+    objEntry.setText ({});
+    objEntry.setVisible (true);
+    objEntry.grabKeyboardFocus();
 }
 
 // =========================================================================== ObjPalette
@@ -536,7 +455,7 @@ private:
 PatcherEditor::PatcherEditor (PatcherProcessor& p)
     : juce::AudioProcessorEditor (p), patcher (p)
 {
-    canvas = std::make_unique<CanvasComp> (*this);
+    canvas.reset (new NodeCanvas (*this));     // private Delegate base: convert in member scope
     addAndMakeVisible (*canvas);
     canvas->pan = { kPaletteW, 54 };
     canvas->applyView();
@@ -673,7 +592,7 @@ ValueTree PatcherEditor::cableAt (juce::Point<float> p) const
         const auto a = outletPos (c[id::src].toString(), (int) c[kSrcPort]);
         const auto b = inletPos (c[kDst].toString(), (int) c[kDstPort]);
         if (a.isOrigin() || b.isOrigin()) continue;
-        auto path = CanvasComp::cablePath (a, b);
+        auto path = NodeCanvas::cablePath (a, b);
         juce::Point<float> nearest;
         path.getNearestPoint (p, nearest);
         if (nearest.getDistanceFrom (p) < 7.0f)
