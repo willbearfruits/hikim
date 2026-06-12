@@ -33,6 +33,9 @@ sentimental side — or the machinery both stand on.
   into the arrangement, drag clips between views, patcher objects as host mod sources.
 - **Phase D - the Jitter-shaped thing**: character-matrix visual objects rendering
   to a glyph window (Jitter bent toward characterglitch).
+- **Tracker view (mode four)**: a real tracker lens on the session - rows as ticks,
+  columns as tracks, hex-ish note entry, pattern chaining (FOLLOW mode already does
+  scene chaining; this is the full keyboard-first editing surface).
 
 ## Next (small, soon)
 

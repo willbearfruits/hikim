@@ -32,6 +32,7 @@ public:
     void selectAll();
     void showTrackFxMenu (ValueTree track, juce::Component* target);
     void showAutomationMenu (ValueTree track, juce::Component* target);
+    void zoomKey (bool zoomIn);
 
     // import audio files; pos is in TimelineView coordinates (over the canvas =
     // exact row + snapped time, anywhere else = playhead on a sensible track)

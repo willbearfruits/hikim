@@ -107,6 +107,16 @@ private:
 
     DragBar bottomBar;
     int bottomH = 240, bottomHAtDragStart = 240;
+    juce::TooltipWindow tooltips { nullptr, 600 };
+
+    // dismissable cheatsheet for newcomers (? button / F1)
+    struct HelpOverlay : juce::Component
+    {
+        HelpOverlay() { setInterceptsMouseClicks (true, false); }
+        void mouseDown (const juce::MouseEvent&) override { setVisible (false); }
+        void paint (juce::Graphics&) override;
+    };
+    HelpOverlay helpOverlay;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };

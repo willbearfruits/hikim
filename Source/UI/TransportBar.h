@@ -24,12 +24,13 @@ private:
 
 public:
     std::function<void()> onToggleView;
+    std::function<void()> onHelp;
     void setViewLabel (const String& s) { viewBtn.setButtonText (s); }
 
 private:
     juce::TextButton rtzBtn { "|<" }, playBtn { ">" }, stopBtn { "[]" }, recBtn { "REC" };
     juce::TextButton viewBtn { "SESSION" };
-    juce::TextButton loopBtn { "LOOP" }, metroBtn { "CLICK" }, dubBtn { "OVERDUB" };
+    juce::TextButton loopBtn { "LOOP" }, metroBtn { "CLICK" }, dubBtn { "OVERDUB" }, helpBtn { "?" };
     juce::Label posBars, posTime, bpmLabel, cpuLabel;
     juce::ComboBox snapBox;
 

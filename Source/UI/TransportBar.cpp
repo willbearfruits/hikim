@@ -20,8 +20,20 @@ TransportBar::TransportBar (AudioEngine& e, SessionModel& s, UIState& u)
     recBtn.onClick = [this] { engine.toggleRecord(); };
     viewBtn.onClick = [this] { if (onToggleView) onToggleView(); };
     viewBtn.setColour (juce::TextButton::buttonColourId, col::accent.darker (0.55f));
-    for (auto* b : { &rtzBtn, &playBtn, &stopBtn, &recBtn, &viewBtn })
+    helpBtn.onClick = [this] { if (onHelp) onHelp(); };
+    for (auto* b : { &rtzBtn, &playBtn, &stopBtn, &recBtn, &viewBtn, &helpBtn })
         addAndMakeVisible (*b);
+
+    rtzBtn.setTooltip ("back to the start (Home)");
+    playBtn.setTooltip ("play (Space)");
+    stopBtn.setTooltip ("stop (Space)");
+    recBtn.setTooltip ("record onto armed tracks (R)");
+    viewBtn.setTooltip ("switch view: arrange / session grid / patcher (Tab)");
+    loopBtn.setTooltip ("loop the region dragged in the ruler (L)");
+    metroBtn.setTooltip ("metronome click");
+    dubBtn.setTooltip ("MIDI overdub: recording adds to existing clips");
+    helpBtn.setTooltip ("cheatsheet (F1)");
+    snapBox.setTooltip ("snap grid for moving and trimming clips");
 
     auto bindTransportToggle = [this] (juce::TextButton& b, const Identifier& prop)
     {
@@ -131,6 +143,7 @@ void TransportBar::resized()
     b.removeFromLeft (2);
     dubBtn.setBounds (b.removeFromLeft (72));
     cpuLabel.setBounds (b.removeFromRight (170));
+    helpBtn.setBounds (b.removeFromRight (30));
 }
 
 } // namespace dg

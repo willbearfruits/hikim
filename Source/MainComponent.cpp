@@ -42,6 +42,11 @@ MainComponent::MainComponent()
     };
     transportBar->onToggleView = [this] { toggleView(); };
     transportBar->setViewLabel ("SESSION");
+    transportBar->onHelp = [this]
+    {
+        helpOverlay.setVisible (! helpOverlay.isVisible());
+        helpOverlay.toFront (false);
+    };
 
     mixer = std::make_unique<MixerView> (*engine, session, ui);
     pianoRoll = std::make_unique<PianoRoll> (*engine, session, ui);
@@ -108,6 +113,8 @@ MainComponent::MainComponent()
         refreshTitle();
     };
 
+    addChildComponent (helpOverlay);
+
     bottomBar.onDragStart = [this] { bottomHAtDragStart = bottomH; };
     bottomBar.onDrag = [this] (int dy)
     {
@@ -141,6 +148,61 @@ void MainComponent::resized()
     timeline->setVisible (viewMode == 0);
     sessionGrid->setVisible (viewMode == 1);
     routingView->setVisible (viewMode == 2);
+    helpOverlay.setBounds (getLocalBounds());
+    helpOverlay.toFront (false);
+}
+
+void MainComponent::HelpOverlay::paint (juce::Graphics& g)
+{
+    g.fillAll (col::bg.withAlpha (0.92f));
+    auto r = getLocalBounds().withSizeKeepingCentre (juce::jmin (940, getWidth() - 60),
+                                                     juce::jmin (560, getHeight() - 60));
+    g.setColour (col::panel);
+    g.fillRoundedRectangle (r.toFloat(), 8.0f);
+    g.setColour (col::accent);
+    g.drawRoundedRectangle (r.toFloat(), 8.0f, 1.5f);
+
+    auto inner = r.reduced (26);
+    g.setColour (col::accent);
+    g.setFont (juce::Font (juce::FontOptions (24.0f, juce::Font::bold)));
+    g.drawText ("RUIN - how to drive it", inner.removeFromTop (34), juce::Justification::left);
+    g.setColour (col::dim);
+    g.setFont (juce::Font (juce::FontOptions (12.0f)));
+    g.drawText ("click anywhere to close  -  ? or F1 brings this back", inner.removeFromTop (22), juce::Justification::left);
+    inner.removeFromTop (8);
+
+    static const char* colA =
+        "GETTING SOUND\n"
+        "Drag audio files anywhere - they become clips\n"
+        "SESSION button (or Tab): the loop grid - click cells to jam\n"
+        "Click an empty grid cell on Inst: draws you a loop\n"
+        "Space  play / stop      R  record      L  loop\n"
+        "\n"
+        "EDITING\n"
+        "Tools 1/2/3: arrow = move, razor = split, X = delete\n"
+        "Drag clip edges to trim - corners for fades\n"
+        "Double-click audio clip: SAMPLE editor\n"
+        "Double-click MIDI clip: PIANO ROLL\n"
+        "Ctrl+Z undo anything";
+    static const char* colB =
+        "BREAKING SOUND (the fun part)\n"
+        "FX button on a track > Add TEETH - the corruption rack\n"
+        "Try the GESTURES menu inside it\n"
+        "PATCHER view: drag CHAOS onto a channel - pick a knob\n"
+        "WIRES: build your own instrument from boxes + cables\n"
+        "\n"
+        "KEYS\n"
+        "Ctrl+X/C/V  cut / copy / paste      Ctrl+D duplicate\n"
+        "S split at playhead      Shift+Del ripple delete\n"
+        "Ctrl+wheel  zoom      + / -  zoom\n"
+        "Ctrl+S save      Ctrl+E export\n"
+        "Options menu: Light theme + UI scale";
+
+    g.setColour (col::text);
+    g.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 14.0f, juce::Font::plain)));
+    auto half = inner.removeFromLeft (inner.getWidth() / 2);
+    g.drawFittedText (colA, half.reduced (4), juce::Justification::topLeft, 30);
+    g.drawFittedText (colB, inner.reduced (4), juce::Justification::topLeft, 30);
 }
 
 // ---------------------------------------------------------------- timer: automation write drain
@@ -450,6 +512,16 @@ bool MainComponent::keyPressed (const juce::KeyPress& k, juce::Component* origin
         toggleView();
         return true;
     }
+    if (kc == juce::KeyPress::F1Key || k.getTextCharacter() == '?')
+    {
+        helpOverlay.setVisible (! helpOverlay.isVisible());
+        helpOverlay.toFront (false);
+        return true;
+    }
+    if (k.getTextCharacter() == '+' || k.getTextCharacter() == '=')
+    { timeline->zoomKey (true); return true; }
+    if (k.getTextCharacter() == '-')
+    { timeline->zoomKey (false); return true; }
     if (kc == juce::KeyPress::spaceKey) { engine->togglePlayStop(); return true; }
     if (kc == juce::KeyPress::homeKey) { engine->seekSeconds (0.0); return true; }
     if (k.getModifiers().isCommandDown())

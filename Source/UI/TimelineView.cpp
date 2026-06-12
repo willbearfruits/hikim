@@ -211,9 +211,12 @@ public:
         if (isTake) base = base.withMultipliedSaturation (0.4f).darker (0.4f);
 
         auto r = getLocalBounds().toFloat().reduced (0.5f);
-        g.setColour (base.withAlpha (0.35f));
+        juce::ColourGradient grad (base.withAlpha (hovered ? 0.5f : 0.38f), r.getTopLeft(),
+                                   base.withAlpha (hovered ? 0.3f : 0.2f), r.getBottomLeft(), false);
+        g.setGradientFill (grad);
         g.fillRoundedRectangle (r, 3.0f);
-        g.setColour (selected ? juce::Colours::white : base);
+        g.setColour (selected ? (Look::get().isLight() ? juce::Colours::black : juce::Colours::white)
+                              : base.brighter (hovered ? 0.3f : 0.0f));
         g.drawRoundedRectangle (r, 3.0f, selected ? 1.8f : 1.0f);
 
         const double lenSec = clip[id::length];
@@ -467,6 +470,9 @@ public:
         });
     }
 
+    void mouseEnter (const juce::MouseEvent&) override { hovered = true; repaint(); }
+    void mouseExit (const juce::MouseEvent&) override  { hovered = false; repaint(); }
+
     void mouseMove (const juce::MouseEvent& e) override
     {
         if (tv.ui.tool == Tool::razor)  { setMouseCursor (juce::MouseCursor::IBeamCursor); return; }
@@ -481,6 +487,7 @@ public:
     }
 
     int visualRowY = -1;          // live cross-track drag feedback
+    bool hovered = false;
 
 private:
     TimelineView& tv;
@@ -678,23 +685,25 @@ public:
         const String type = track[id::type];
         const bool isChannel = type == "audio" || type == "midi";
 
-        auto setupToggle = [this] (juce::TextButton& b, const Identifier& prop, juce::Colour on)
+        auto setupToggle = [this] (juce::TextButton& b, const Identifier& prop, juce::Colour on,
+                                   const String& tip)
         {
             b.setClickingTogglesState (true);
             b.setToggleState ((bool) track[prop], juce::dontSendNotification);
             b.setColour (juce::TextButton::buttonOnColourId, on);
+            b.setTooltip (tip);
             b.onClick = [this, &b, prop] { track.setProperty (prop, b.getToggleState(), nullptr); };
             addAndMakeVisible (b);
         };
 
         if (type != "video")
         {
-            setupToggle (muteBtn, id::mute, col::accent2);
-            if (isChannel) setupToggle (soloBtn, id::solo, col::play);
+            setupToggle (muteBtn, id::mute, col::accent2, "mute this track");
+            if (isChannel) setupToggle (soloBtn, id::solo, col::play, "solo: hear only this track");
         }
         if (isChannel)
         {
-            setupToggle (armBtn, id::armed, col::record);
+            setupToggle (armBtn, id::armed, col::record, "arm for recording");
 
             monBtn.onClick = [this]
             {
@@ -703,12 +712,15 @@ public:
                 updateMonText();
             };
             updateMonText();
+            monBtn.setTooltip ("input monitoring: off > direct (dry) > through the FX chain");
             addAndMakeVisible (monBtn);
 
             fxBtn.onClick = [this] { tv.showTrackFxMenu (track, &fxBtn); };
+            fxBtn.setTooltip ("devices: add TEETH / WIRES / plugins, set the instrument");
             addAndMakeVisible (fxBtn);
 
             autoBtn.onClick = [this] { tv.showAutomationMenu (track, &autoBtn); };
+            autoBtn.setTooltip ("automation lanes: draw parameter movement over time");
             addAndMakeVisible (autoBtn);
         }
         if (type == "audio")
@@ -884,9 +896,27 @@ public:
         const double t0 = tv.xToTime (clip.getX());
         const double t1 = tv.xToTime (clip.getRight());
 
-        // beat/bar grid
+        // alternating bar shading (orientation at a glance), then beat lines
         double beat = map->barBeatAt (map->secondsToBeats (juce::jmax (0.0, t0))).barStartBeat;
         int guard = 0;
+        while (guard++ < 4000)
+        {
+            auto bb = map->barBeatAt (beat + 1.0e-6);
+            const double s0 = map->beatsToSeconds (bb.barStartBeat);
+            if (s0 > t1) break;
+            const double bpb = bb.num * 4.0 / bb.den;
+            const double s1 = map->beatsToSeconds (bb.barStartBeat + bpb);
+            if (bb.bar % 2 == 1)
+            {
+                g.setColour (col::panel.withAlpha (0.35f));
+                g.fillRect ((int) tv.timeToX (s0), clip.getY(),
+                            juce::jmax (1, (int) ((s1 - s0) * tv.pps)), clip.getHeight());
+            }
+            beat = bb.barStartBeat + bpb;
+        }
+
+        beat = map->barBeatAt (map->secondsToBeats (juce::jmax (0.0, t0))).barStartBeat;
+        guard = 0;
         while (guard++ < 8000)
         {
             const double sec = map->beatsToSeconds (beat);
@@ -898,6 +928,21 @@ public:
             if (isBar || tv.pps * 60.0 / map->bpmAtBeat (beat) > 14)
                 g.drawLine ((float) x, (float) clip.getY(), (float) x, (float) clip.getBottom());
             beat += 4.0 / bb.den;
+        }
+
+        // friendly empty state
+        bool anyClips = false;
+        for (const auto& t : tv.session.tracks())
+            if (t.getChildWithName (id::CLIPS).getNumChildren() > 0) { anyClips = true; break; }
+        if (! anyClips)
+        {
+            g.setColour (col::dim);
+            g.setFont (juce::Font (juce::FontOptions (15.0f)));
+            g.drawFittedText ("drop audio files anywhere\n"
+                              "double-click an Inst track to write notes\n"
+                              "or hit the SESSION button and click a cell to jam\n"
+                              "?  opens the cheatsheet",
+                              clip.reduced (40), juce::Justification::centred, 5);
         }
 
         // row separators + bus/master shading
@@ -972,6 +1017,23 @@ public:
         const int px = (int) tv.timeToX (tv.engine.getPositionSeconds());
         g.setColour (col::record.withAlpha (0.9f));
         g.drawLine ((float) px, (float) clip.getY(), (float) px, (float) clip.getBottom(), 1.4f);
+
+        if (marqueeActive && ! marqueeRect.isEmpty())
+        {
+            g.setColour (col::accent.withAlpha (0.12f));
+            g.fillRect (marqueeRect);
+            g.setColour (col::accent);
+            g.drawRect (marqueeRect);
+        }
+    }
+
+    ValueTree createMidiClipAt (ValueTree track, double sec)
+    {
+        tv.session.undo.beginNewTransaction ("new clip");
+        auto map = tv.engine.getTempoMap();
+        const double beats = map->secondsToBeats (sec);
+        const double len = map->beatsToSeconds (beats + 4.0) - sec;
+        return tv.session.addMidiClip (track, sec, len);
     }
 
     void mouseDown (const juce::MouseEvent& e) override
@@ -982,8 +1044,7 @@ public:
             if (rowIdx >= 0 && ! tv.rows[(size_t) rowIdx].lane.isValid())
             {
                 auto track = tv.rows[(size_t) rowIdx].track;
-                const String type = track[id::type];
-                if (type == "midi")
+                if (track[id::type].toString() == "midi")
                 {
                     juce::PopupMenu m;
                     m.addItem (1, "New MIDI clip here");
@@ -992,21 +1053,58 @@ public:
                     {
                         if (r == 1)
                         {
-                            tv.session.undo.beginNewTransaction ("new clip");
-                            auto map = tv.engine.getTempoMap();
-                            const double beats = map->secondsToBeats (sec);
-                            const double len = map->beatsToSeconds (beats + 4.0) - sec;
-                            auto c = tv.session.addMidiClip (track, sec, len);
+                            auto c = createMidiClipAt (track, sec);
                             if (tv.ui.openPianoRoll) tv.ui.openPianoRoll (c);
-                            tv.rebuild();
+                            tv.rebuildPending = true;
                         }
                     });
                 }
             }
             return;
         }
-        tv.ui.selectedClips.clear();
+
+        // marquee select on empty space
+        marqueeAnchor = e.getPosition();
+        marqueeRect = {};
+        marqueeActive = true;
+        if (! e.mods.isShiftDown())
+            tv.ui.selectedClips.clear();
         tv.repaint();
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (! marqueeActive) return;
+        marqueeRect = juce::Rectangle<int> (marqueeAnchor, e.getPosition());
+        // select clips intersecting the band
+        for (auto* cc : tv.clipComps)
+        {
+            const String uid = cc->clip[id::uid].toString();
+            if (marqueeRect.intersects (cc->getBounds()))
+                tv.ui.selectedClips.insert (uid);
+            else if (! e.mods.isShiftDown())
+                tv.ui.selectedClips.erase (uid);
+        }
+        repaint();
+        for (auto* cc : tv.clipComps) cc->repaint();
+    }
+
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        marqueeActive = false;
+        repaint();
+    }
+
+    void mouseDoubleClick (const juce::MouseEvent& e) override
+    {
+        // double-click an empty Inst row: clip appears + piano roll opens
+        const int rowIdx = tv.rowIndexAtY (e.y);
+        if (rowIdx < 0 || tv.rows[(size_t) rowIdx].lane.isValid()) return;
+        auto track = tv.rows[(size_t) rowIdx].track;
+        if (track[id::type].toString() != "midi") return;
+        auto c = createMidiClipAt (track, tv.snap (tv.xToTime (e.x)));
+        if (tv.ui.openPianoRoll) tv.ui.openPianoRoll (c);
+        tv.rebuildPending = true;
     }
 
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
@@ -1034,6 +1132,9 @@ public:
 
 private:
     TimelineView& tv;
+    juce::Point<int> marqueeAnchor;
+    juce::Rectangle<int> marqueeRect;
+    bool marqueeActive = false;
 };
 
 // =========================================================================== ToolBar
@@ -1296,6 +1397,15 @@ int TimelineView::rowIndexAtY (int y) const
         if (y >= rows[i].y && y < rows[i].y + rows[i].h)
             return (int) i;
     return -1;
+}
+
+void TimelineView::zoomKey (bool zoomIn)
+{
+    // zoom around the playhead if visible, else view centre
+    const int ph = (int) timeToX (engine.getPositionSeconds());
+    const int viewMid = vp.getViewPositionX() + vp.getWidth() / 2;
+    const bool phVisible = ph >= vp.getViewPositionX() && ph <= vp.getViewPositionX() + vp.getWidth();
+    zoomAround (zoomIn ? 1.25 : 1.0 / 1.25, phVisible ? ph : viewMid);
 }
 
 void TimelineView::zoomAround (double factor, int pivotX)
@@ -1712,11 +1822,11 @@ void TimelineView::timerCallback()
         ruler->repaint();
     }
 
-    // playhead follow + repaint
+    // playhead follow: page-flip when it leaves the right edge (no seasick scrolling)
     if (engine.isPlaying())
     {
         const int px = (int) timeToX (engine.getPositionSeconds());
-        if (px < vp.getViewPositionX() || px > vp.getViewPositionX() + vp.getWidth() - 40)
+        if (px > vp.getViewPositionX() + vp.getWidth() - 30)
             vp.setViewPosition (juce::jmax (0, px - 60), vp.getViewPositionY());
     }
     canvas->repaint();
