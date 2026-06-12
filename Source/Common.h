@@ -1,5 +1,8 @@
 #pragma once
 #include <JuceHeader.h>
+#include <map>
+#include <set>
+#include <vector>
 
 // Naming slots — rename the whole app in one pass here.
 namespace dg::names

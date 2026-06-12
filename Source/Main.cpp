@@ -61,8 +61,9 @@ public:
         juce::SystemStats::setApplicationCrashHandler ([] (void*)
         {
             const auto trace = juce::SystemStats::getStackBacktrace();
-            juce::File ("/tmp/ruin-crash.log").replaceWithText (
-                juce::Time::getCurrentTime().toString (true, true) + "\n" + trace);
+            juce::File::getSpecialLocation (juce::File::tempDirectory)
+                .getChildFile ("ruin-crash.log")
+                .replaceWithText (juce::Time::getCurrentTime().toString (true, true) + "\n" + trace);
             std::cerr << "RUIN crashed:\n" << trace << std::endl;
         });
 
