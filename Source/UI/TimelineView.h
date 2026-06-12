@@ -33,6 +33,8 @@ public:
     void showTrackFxMenu (ValueTree track, juce::Component* target);
     void showAutomationMenu (ValueTree track, juce::Component* target);
     void zoomKey (bool zoomIn);
+    void nudgeSelected (int direction, bool fine);   // arrows: move clips by grid / 10ms
+    void loopToSelection();                          // Ctrl+L
 
     // import audio files; pos is in TimelineView coordinates (over the canvas =
     // exact row + snapped time, anywhere else = playhead on a sensible track)

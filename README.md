@@ -49,10 +49,13 @@ ASIO: drop the Steinberg ASIO SDK in and enable `JUCE_ASIO=1` in `CMakeLists.txt
 
 ## Quick orientation
 
-- **Space** play/stop - **R** record - **L** loop - **S** split selected clip at playhead -
-  **Del** delete - **Shift+Del** ripple delete - **Ctrl+X/C/V** cut/copy/paste at playhead -
-  **Ctrl+D** duplicate - **Ctrl+A** select all - **Ctrl+Z / Ctrl+Shift+Z** undo/redo -
-  **Ctrl+S** save - **Ctrl+E** export - **Ctrl+wheel** zoom.
+- **Space/K** play-stop - **J/L** bar back/forward (Shift = 4 bars) - **Return** to start -
+  **R** record - **Shift+L** loop on/off - **Ctrl+L** loop around selection -
+  **S** split at playhead - **Del** delete - **Shift+Del** ripple delete -
+  **arrows** nudge selection (Shift = fine) - **M** mute selected track -
+  **Ctrl+X/C/V** cut/copy/paste at playhead - **Ctrl+D** duplicate - **Ctrl+A** select all -
+  **Ctrl+T / Ctrl+Shift+T** new audio/MIDI track - **Ctrl+Z / Ctrl+Shift+Z** undo/redo -
+  **Ctrl+N/O/S** new/open/save - **Ctrl+E** export - **Ctrl+wheel** or **+/-** zoom - **F1** help.
 - Timeline tools (toolbar top-left, or keys **1/2/3**): **select** (arrow),
   **razor** (click a clip to split there), **erase** (click a clip to delete it).
 - **Three modes, one session**: **ARRANGE** (timeline) → **SESSION** (launch grid) →

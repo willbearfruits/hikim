@@ -29,7 +29,7 @@ TransportBar::TransportBar (AudioEngine& e, SessionModel& s, UIState& u)
     stopBtn.setTooltip ("stop (Space)");
     recBtn.setTooltip ("record onto armed tracks (R)");
     viewBtn.setTooltip ("switch view: arrange / session grid / patcher (Tab)");
-    loopBtn.setTooltip ("loop the region dragged in the ruler (L)");
+    loopBtn.setTooltip ("loop the region dragged in the ruler (Shift+L; Ctrl+L loops the selection)");
     metroBtn.setTooltip ("metronome click");
     dubBtn.setTooltip ("MIDI overdub: recording adds to existing clips");
     helpBtn.setTooltip ("cheatsheet (F1)");

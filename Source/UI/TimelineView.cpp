@@ -1399,6 +1399,43 @@ int TimelineView::rowIndexAtY (int y) const
     return -1;
 }
 
+void TimelineView::nudgeSelected (int direction, bool fine)
+{
+    if (ui.selectedClips.empty()) return;
+    auto map = engine.getTempoMap();
+    double delta = 0.01;                              // fine: 10 ms
+    if (! fine)
+    {
+        double grid = kSnapBeats[ui.snapMode];        // beats; <=0 means bar/off
+        if (grid <= 0.0) grid = ui.snapMode == 1 ? map->beatsPerBarAt (0.0) : 0.25;
+        delta = map->beatsToSeconds (grid) - map->beatsToSeconds (0.0);
+    }
+    session.undo.beginNewTransaction ("nudge");
+    for (auto track : session.tracks())
+        for (auto clip : SessionModel::clipsOf (track))
+            if (ui.selectedClips.count (clip[id::uid].toString()) > 0)
+                clip.setProperty (id::start,
+                                  juce::jmax (0.0, (double) clip[id::start] + delta * direction),
+                                  &session.undo);
+}
+
+void TimelineView::loopToSelection()
+{
+    double lo = std::numeric_limits<double>::max(), hi = 0.0;
+    for (auto track : session.tracks())
+        for (auto clip : SessionModel::clipsOf (track))
+            if (ui.selectedClips.count (clip[id::uid].toString()) > 0)
+            {
+                lo = juce::jmin (lo, (double) clip[id::start]);
+                hi = juce::jmax (hi, (double) clip[id::start] + (double) clip[id::length]);
+            }
+    if (hi <= lo) return;
+    auto tr = session.transport();
+    tr.setProperty (id::loopStart, lo, &session.undo);
+    tr.setProperty (id::loopEnd, hi, &session.undo);
+    tr.setProperty (id::loopOn, true, nullptr);
+}
+
 void TimelineView::zoomKey (bool zoomIn)
 {
     // zoom around the playhead if visible, else view centre

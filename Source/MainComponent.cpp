@@ -175,14 +175,16 @@ void MainComponent::HelpOverlay::paint (juce::Graphics& g)
         "GETTING SOUND\n"
         "Drag audio files anywhere - they become clips\n"
         "SESSION button (or Tab): the loop grid - click cells to jam\n"
-        "Click an empty grid cell on Inst: draws you a loop\n"
-        "Space  play / stop      R  record      L  loop\n"
+        "Double-click an Inst track: draws you a loop\n"
+        "Space / K  play-stop      R  record\n"
+        "J / L  jump a bar back / forward (Shift = 4 bars)\n"
+        "Return  back to start      Shift+L  loop on-off\n"
         "\n"
         "EDITING\n"
         "Tools 1/2/3: arrow = move, razor = split, X = delete\n"
         "Drag clip edges to trim - corners for fades\n"
-        "Double-click audio clip: SAMPLE editor\n"
-        "Double-click MIDI clip: PIANO ROLL\n"
+        "Arrows  nudge selected clips (Shift = fine)\n"
+        "Double-click clips: SAMPLE editor / PIANO ROLL\n"
         "Ctrl+Z undo anything";
     static const char* colB =
         "BREAKING SOUND (the fun part)\n"
@@ -193,10 +195,11 @@ void MainComponent::HelpOverlay::paint (juce::Graphics& g)
         "\n"
         "KEYS\n"
         "Ctrl+X/C/V  cut / copy / paste      Ctrl+D duplicate\n"
-        "S split at playhead      Shift+Del ripple delete\n"
-        "Ctrl+wheel  zoom      + / -  zoom\n"
-        "Ctrl+S save      Ctrl+E export\n"
-        "Options menu: Light theme + UI scale";
+        "S split      Shift+Del ripple delete      M mute track\n"
+        "Ctrl+L  loop around selection      Ctrl+A select all\n"
+        "Ctrl+T / Ctrl+Shift+T  new audio / MIDI track\n"
+        "Ctrl+wheel or + / -  zoom      Ctrl+S save  Ctrl+E export\n"
+        "Ctrl+N new  Ctrl+O open      Options: theme + UI scale";
 
     g.setColour (col::text);
     g.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 14.0f, juce::Font::plain)));
@@ -534,6 +537,17 @@ bool MainComponent::keyPressed (const juce::KeyPress& k, juce::Component* origin
         if (is ('C')) { timeline->copySelected (false); return true; }
         if (is ('V')) { timeline->pasteAtPlayhead(); return true; }
         if (is ('A')) { timeline->selectAll(); return true; }
+        if (is ('L')) { timeline->loopToSelection(); return true; }
+        if (is ('N')) { doNew(); return true; }
+        if (is ('O')) { doOpen(); return true; }
+        if (is ('T'))
+        {
+            session.undo.beginNewTransaction ("add track");
+            session.addTrack (k.getModifiers().isShiftDown() ? "midi" : "audio",
+                              (k.getModifiers().isShiftDown() ? "Inst " : "Audio ")
+                                  + String (session.tracks().getNumChildren()));
+            return true;
+        }
         return false;
     }
     if (kc == '1' || kc == '2' || kc == '3')
@@ -542,13 +556,44 @@ bool MainComponent::keyPressed (const juce::KeyPress& k, juce::Component* origin
         timeline->syncToolbar();
         return true;
     }
-    if (is ('R')) { engine->toggleRecord(); return true; }
-    if (is ('L'))
+
+    // JKL shuttle, premiere-style: J = bar back, K = play/stop, L = bar forward (Shift = x4 / loop)
+    auto barSeconds = [this]
     {
-        auto tr = session.transport();
-        tr.setProperty (id::loopOn, ! (bool) tr[id::loopOn], nullptr);
+        auto map = engine->getTempoMap();
+        auto bb = map->barBeatAt (map->samplesToBeats (engine->getPositionSamples()));
+        return map->beatsToSeconds (bb.barStartBeat + bb.num * 4.0 / bb.den)
+             - map->beatsToSeconds (bb.barStartBeat);
+    };
+    if (is ('J'))
+    {
+        const double step = barSeconds() * (k.getModifiers().isShiftDown() ? 4.0 : 1.0);
+        engine->seekSeconds (juce::jmax (0.0, engine->getPositionSeconds() - step));
         return true;
     }
+    if (is ('K')) { engine->togglePlayStop(); return true; }
+    if (is ('L'))
+    {
+        if (k.getModifiers().isShiftDown())
+        {
+            auto tr = session.transport();
+            tr.setProperty (id::loopOn, ! (bool) tr[id::loopOn], nullptr);
+            return true;
+        }
+        engine->seekSeconds (engine->getPositionSeconds() + barSeconds());
+        return true;
+    }
+    if (kc == juce::KeyPress::leftKey)  { timeline->nudgeSelected (-1, k.getModifiers().isShiftDown()); return true; }
+    if (kc == juce::KeyPress::rightKey) { timeline->nudgeSelected (1, k.getModifiers().isShiftDown()); return true; }
+    if (kc == juce::KeyPress::returnKey) { engine->seekSeconds (0.0); return true; }
+    if (is ('M'))
+    {
+        auto t = session.findTrack (ui.selectedTrack);
+        if (t.isValid())
+            t.setProperty (id::mute, ! (bool) t[id::mute], nullptr);
+        return true;
+    }
+    if (is ('R')) { engine->toggleRecord(); return true; }
     if (is ('S')) { timeline->splitSelectedAtPlayhead(); return true; }
     if (kc == juce::KeyPress::deleteKey || kc == juce::KeyPress::backspaceKey)
     {
