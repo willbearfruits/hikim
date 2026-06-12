@@ -1194,9 +1194,11 @@ void AudioEngine::finalizeRecordings()
             if (auto* cp = dynamic_cast<ClipPlayerProcessor*> (tn.source->getProcessor()))
                 cp->rec.store (nullptr);
 
-    // let in-flight audio blocks finish before tearing writers down
-    juce::Timer::callAfterDelay (80, [this, sessions = std::make_shared<std::vector<std::unique_ptr<RecordSession>>>
-                                            (std::move (recordSessions))]
+    // tear writers down only after the audio thread acknowledges it can no
+    // longer hold the retired rec pointers (a fixed delay is beaten by big
+    // device buffers: 4096 @ 44.1k is a 93 ms block)
+    runAfterAudioDrain ([this, sessions = std::make_shared<std::vector<std::unique_ptr<RecordSession>>>
+                               (std::move (recordSessions))]
     {
         session.undo.beginNewTransaction ("record");
         for (auto& s : *sessions)
@@ -1414,6 +1416,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* input, i
                                                     const juce::AudioIODeviceCallbackContext&)
 {
     juce::ScopedNoDenormals noDenormals;
+    audioEpoch.fetch_add (1);
 
     {
         juce::SpinLock::ScopedTryLockType tl (mapLock);
@@ -1886,7 +1889,7 @@ void AudioEngine::stopMasterCapture()
     if (masterCapture.exchange (nullptr) != nullptr)
     {
         auto owned = std::move (masterCaptureOwned);
-        juce::Timer::callAfterDelay (80, [w = std::shared_ptr<juce::AudioFormatWriter::ThreadedWriter> (std::move (owned))] () mutable
+        runAfterAudioDrain ([w = std::shared_ptr<juce::AudioFormatWriter::ThreadedWriter> (std::move (owned))] () mutable
         { w.reset(); });
     }
 }
@@ -1955,6 +1958,25 @@ void AudioEngine::setStemSolo (const String& uid)
 }
 
 // ============================================================ housekeeping
+
+void AudioEngine::runAfterAudioDrain (std::function<void()> fn)
+{
+    // 1 s deadline: if the epoch hasn't moved by then the device is stopped or
+    // stalled, and no callback can be holding the retired pointers either way
+    drainPoll (audioEpoch.load() + 2, juce::Time::getMillisecondCounter() + 1000, std::move (fn));
+}
+
+void AudioEngine::drainPoll (juce::uint64 targetEpoch, juce::uint32 deadlineMs, std::function<void()> fn)
+{
+    if (audioEpoch.load() >= targetEpoch
+        || juce::Time::getMillisecondCounter() >= deadlineMs)
+    {
+        fn();
+        return;
+    }
+    juce::Timer::callAfterDelay (15, [this, targetEpoch, deadlineMs, fn = std::move (fn)] () mutable
+    { drainPoll (targetEpoch, deadlineMs, std::move (fn)); });
+}
 
 void AudioEngine::timerCallback()
 {

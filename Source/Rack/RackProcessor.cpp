@@ -121,7 +121,7 @@ RackProcessor::RackProcessor()
     {
         onParams[m]  = apvts.getRawParameterValue (String (kModuleIds[m]) + "_on");
         mixParams[m] = apvts.getRawParameterValue (String (kModuleIds[m]) + "_mix");
-        rtOrder[(size_t) m] = (juce::int8) m;
+        rtOrder[(size_t) m] = rtOrderLocal[(size_t) m] = (juce::int8) m;
     }
     for (int i = 0; i < 4; ++i)
         macroParams[i] = apvts.getRawParameterValue ("macro" + String (i + 1));
@@ -209,11 +209,15 @@ void RackProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
             }
     }
 
-    std::array<juce::int8, kNumModules> order;
     {
+        // only adopt the order when the writer isn't mid-update; otherwise keep
+        // processing with the last cleanly-read order (a torn copy could run a
+        // module twice / skip one for a block)
         juce::SpinLock::ScopedTryLockType tl (rtLock);
-        order = rtOrder;
+        if (tl.isLocked())
+            rtOrderLocal = rtOrder;
     }
+    const auto& order = rtOrderLocal;
 
     bool anyActive = false;
     for (int slot = 0; slot < kNumModules; ++slot)

@@ -154,7 +154,7 @@ cmake --build build --target ruin_tests -j$(nproc)
 ./build/ruin_tests_artefacts/Release/ruin_tests
 ```
 
-Crashes write a backtrace to `/tmp/ruin-crash.log`.
+Crashes write a backtrace to `hikim-crash.log` in the system temp directory.
 
 ## Extension Points
 
@@ -164,3 +164,9 @@ session jam back into the arrangement.
 
 Names live in `Source/Common.h`: `dg::names::appName`, `rackName`, `patcherName`,
 plus `PRODUCT_NAME` in `CMakeLists.txt`.
+
+## License
+
+HIKIM is free software, released under the **GNU Affero General Public License v3**
+(see [LICENSE](LICENSE)). It is built on [JUCE](https://juce.com) (AGPLv3) and the
+[Rubber Band Library](https://breakfastquay.com/rubberband/) (GPL).

@@ -24,7 +24,7 @@ cmake --build build -j$(nproc)                 # builds app + tests
 There is no per-test filter; the suite runs everything (juce::UnitTest classes in
 `Tests/Tests.cpp`). RubberBand is fetched at configure time (single-file vendored build)
 unless a system `rubberband` pkg-config package exists. Crashes write a backtrace to
-`/tmp/ruin-crash.log` (handler installed in `Main.cpp`).
+`the temp dir as `hikim-crash.log`` (handler installed in `Main.cpp`).
 
 ## Architecture: one tree, everything reacts
 

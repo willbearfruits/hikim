@@ -40,7 +40,7 @@ jobs:
       - name: test
         run: .\build\ruin_tests_artefacts\Release\ruin_tests.exe
       - name: portable zip
-        run: Compress-Archive -Path build\dawglitch_artefacts\Release\HIKIM.exe, README.md -DestinationPath HIKIM-windows-portable.zip
+        run: Compress-Archive -Path build\dawglitch_artefacts\Release\HIKIM.exe, README.md, LICENSE -DestinationPath HIKIM-windows-portable.zip
       - name: installer
         run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer\hikim.iss'
       - uses: actions/upload-artifact@v4

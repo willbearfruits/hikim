@@ -11,6 +11,7 @@ SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
 DisableProgramGroupPage=yes
 UninstallDisplayName=HIKIM
+LicenseFile=..\LICENSE
 
 [Tasks]
 Name: desktopicon; Description: "Desktop shortcut"; Flags: unchecked
@@ -18,6 +19,7 @@ Name: desktopicon; Description: "Desktop shortcut"; Flags: unchecked
 [Files]
 Source: "..\build\dawglitch_artefacts\Release\HIKIM.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\HIKIM"; Filename: "{app}\HIKIM.exe"

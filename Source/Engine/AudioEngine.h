@@ -237,6 +237,12 @@ private:
     void handleAsyncUpdate() override;
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
+    // message thread: run fn once the device callback has provably finished any
+    // block that could still hold pointers we just retired (epoch handshake; a
+    // wall-clock deadline covers a stalled/stopped device)
+    void runAfterAudioDrain (std::function<void()> fn);
+    void drainPoll (juce::uint64 targetEpoch, juce::uint32 deadlineMs, std::function<void()> fn);
+
     juce::PropertiesFile* appProps = nullptr;
     juce::TimeSliceThread diskThread { "dg disk" }, recordThread { "dg rec" };
 
@@ -256,6 +262,10 @@ private:
     // tempo map (swapped, audio thread caches per callback)
     juce::SpinLock mapLock;
     std::shared_ptr<const TempoMap> pendingMap, rtMap;
+
+    // bumped at entry of every device callback; serial callbacks mean observing
+    // epoch E+2 proves any block that began before E+1 has returned
+    std::atomic<juce::uint64> audioEpoch { 0 };
 
     // transport
     std::atomic<juce::int64> transportPos { 0 };

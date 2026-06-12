@@ -97,6 +97,7 @@ private:
     std::vector<RTMacro> rtMacros;
     std::vector<RTCC> rtCCs;
     std::array<juce::int8, kNumModules> rtOrder {};
+    std::array<juce::int8, kNumModules> rtOrderLocal {};   // audio thread's last cleanly-read copy
 
     std::atomic<bool> learnArmed { false };
     String learnParamID;                               // message thread sets before arming

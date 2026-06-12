@@ -82,7 +82,7 @@ target_compile_definitions(dawglitch PRIVATE
     JUCE_PLUGINHOST_AU=1            # only takes effect on macOS
     # JUCE_ASIO=1                   # EXTEND: drop the ASIO SDK in and enable for low-latency Windows ASIO
     JUCE_MODAL_LOOPS_PERMITTED=1
-    JUCE_DISPLAY_SPLASH_SCREEN=0)   # GPLv3 build
+    JUCE_DISPLAY_SPLASH_SCREEN=0)   # AGPLv3 build (JUCE 8 free tier)
 
 if(UNIX AND NOT APPLE)
     target_compile_definitions(dawglitch PRIVATE JUCE_ALSA=1 JUCE_JACK=1)
