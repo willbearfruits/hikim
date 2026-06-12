@@ -106,19 +106,19 @@ public:
 
     void mouseDown (const juce::MouseEvent& e) override
     {
-        // start a cable from anywhere on the node
+        // start a cable from anywhere on the node (canvas coords)
         pv.dragFromSrc = srcId;
-        pv.dragPos = e.getEventRelativeTo (&pv).position;
-        pv.repaint();
+        pv.dragPos = e.getEventRelativeTo (getParentComponent()).position;
+        getParentComponent()->repaint();
     }
     void mouseDrag (const juce::MouseEvent& e) override
     {
-        pv.dragPos = e.getEventRelativeTo (&pv).position;
-        pv.repaint();
+        pv.dragPos = e.getEventRelativeTo (getParentComponent()).position;
+        getParentComponent()->repaint();
     }
     void mouseUp (const juce::MouseEvent& e) override
     {
-        pv.endCableDrag (e.getEventRelativeTo (&pv).position);
+        pv.endCableDrag (e.getEventRelativeTo (getParentComponent()).position);
     }
 
     void resized() override
@@ -212,7 +212,7 @@ public:
         dragger.dragComponent (this, e, nullptr);
         target.setProperty (id::x, getX(), nullptr);
         target.setProperty (id::y, getY(), nullptr);
-        pv.repaint();
+        getParentComponent()->repaint();
     }
 
     void resized() override
@@ -233,6 +233,11 @@ private:
 PatchView::PatchView (AudioEngine& e, SessionModel& s, UIState& u)
     : engine (e), session (s), ui (u)
 {
+    canvas.reset (new NodeCanvas (*this));     // private Delegate base: convert in member scope
+    addAndMakeVisible (*canvas);               // chrome below stays on top of it
+    canvas->pan = { 0, 26 };
+    canvas->applyView();
+
     addTargetBtn.onClick = [this] { addTargetMenu(); };
     addAndMakeVisible (addTargetBtn);
 
@@ -275,18 +280,26 @@ void PatchView::rebuild()
     targets.clear();
     auto srcList = engine.getModSources();
     knownSources = (int) srcList.size();
+
+    // nodes live on the canvas (canvas coords, independent of view size)
+    int y = 6;
     for (auto& sd : srcList)
     {
         auto* n = sources.add (new SourceNode (*this, sd.id, sd.label));
-        addAndMakeVisible (n);
+        canvas->addAndMakeVisible (n);
+        n->setBounds (6, y, 150, 60);
+        y += 68;
     }
     for (const auto& t : session.mods())
         if (t.hasType (id::MODTARGET))
         {
             auto* n = targets.add (new TargetNode (*this, t));
-            addAndMakeVisible (n);
+            canvas->addAndMakeVisible (n);
+            const int tx = (int) t.getProperty (id::x, 260 + ((targets.size() - 1) % 3) * 190);
+            const int ty = (int) t.getProperty (id::y, 10 + ((targets.size() - 1) / 3) * 70);
+            n->setBounds (juce::jmax (170, tx), juce::jmax (4, ty), 170, 52);
         }
-    resized();
+    canvas->repaint();
 }
 
 void PatchView::resized()
@@ -295,22 +308,6 @@ void PatchView::resized()
     inspectorLabel.setBounds (8, getHeight() - 26, 160, 20);
     amountSl.setBounds (170, getHeight() - 26, 220, 20);
     deleteCableBtn.setBounds (400, getHeight() - 26, 90, 20);
-
-    const int srcH = juce::jmax (44, (getHeight() - 16) / juce::jmax (1, sources.size()));
-    int y = 4;
-    for (auto* sn : sources)
-    {
-        sn->setBounds (4, y, 150, juce::jmin (srcH - 4, 64));
-        y += juce::jmin (srcH, 68);
-    }
-
-    for (auto* tn : targets)
-    {
-        const int tx = (int) tn->target.getProperty (id::x, 260 + (targets.indexOf (tn) % 3) * 190);
-        const int ty = (int) tn->target.getProperty (id::y, 30 + (targets.indexOf (tn) / 3) * 70);
-        tn->setBounds (juce::jlimit (160, juce::jmax (161, getWidth() - 150), tx),
-                       juce::jlimit (0, juce::jmax (1, getHeight() - 60), ty), 170, 52);
-    }
 }
 
 juce::Point<float> PatchView::sourcePortPos (const String& srcId) const
@@ -341,13 +338,18 @@ static juce::Path cablePath (juce::Point<float> a, juce::Point<float> b)
 void PatchView::paint (juce::Graphics& g)
 {
     g.fillAll (col::bg);
-    g.setColour (col::dim);
-    g.setFont (juce::Font (juce::FontOptions (11.0f)));
-    g.drawText ("drag from a source onto a target box - click a cable to edit - right-click a cable to cut",
-                getLocalBounds().removeFromTop (24).reduced (8, 0), juce::Justification::centredLeft);
 }
 
 void PatchView::paintOverChildren (juce::Graphics& g)
+{
+    g.setColour (col::dim);
+    g.setFont (juce::Font (juce::FontOptions (11.0f)));
+    g.drawText ("drag from a source onto a target box - click a cable to edit - right-click a cable to cut"
+                " - ctrl-wheel zooms, drag space pans",
+                getLocalBounds().removeFromTop (24).reduced (8, 0), juce::Justification::centredLeft);
+}
+
+void PatchView::paintCables (juce::Graphics& g)       // canvas coords
 {
     for (const auto& m : session.mods())
     {
@@ -389,17 +391,11 @@ ValueTree PatchView::modAt (juce::Point<float> p) const
     return {};
 }
 
-void PatchView::mouseDown (const juce::MouseEvent& e)
+bool PatchView::canvasClicked (juce::Point<float> p)
 {
-    auto m = modAt (e.position);
+    auto m = modAt (p);
     if (m.isValid())
     {
-        if (e.mods.isPopupMenu())
-        {
-            session.mods().removeChild (m, &session.undo);
-            if (m == selectedMod) selectedMod = {};
-            return;
-        }
         selectedMod = m;
         auto t = session.mods().getChildWithProperty (id::uid, m[id::target]);
         inspectorLabel.setText (srcLabel (m[id::src].toString()) + " -> " + t[id::name].toString(),
@@ -409,28 +405,42 @@ void PatchView::mouseDown (const juce::MouseEvent& e)
         amountSl.setVisible (true);
         deleteCableBtn.setVisible (true);
         repaint();
-        return;
+        canvas->repaint();
+        return true;                    // selection consumed the click; don't pan
     }
     selectedMod = {};
     inspectorLabel.setVisible (false);
     amountSl.setVisible (false);
     deleteCableBtn.setVisible (false);
     repaint();
+    canvas->repaint();
+    return false;
 }
 
-void PatchView::mouseDrag (const juce::MouseEvent&) {}
+void PatchView::canvasPopup (juce::Point<float> p)
+{
+    auto m = modAt (p);
+    if (! m.isValid()) return;
+    session.mods().removeChild (m, &session.undo);
+    if (m == selectedMod) selectedMod = {};
+}
 
-void PatchView::mouseUp (const juce::MouseEvent& e)
+void PatchView::canvasMouseUp (juce::Point<float> p)
 {
     if (dragFromSrc.isNotEmpty())
-        endCableDrag (e.position);
+        endCableDrag (p);
+}
+
+void PatchView::canvasDoubleClicked (juce::Point<int>)
+{
+    addTargetMenu();                    // empty canvas double-click = add a target
 }
 
 void PatchView::endCableDrag (juce::Point<float> p)
 {
     const String src = dragFromSrc;
     dragFromSrc.clear();
-    if (src.isEmpty()) { repaint(); return; }
+    if (src.isEmpty()) { canvas->repaint(); return; }
 
     for (auto* tn : targets)
         if (tn->getBounds().toFloat().contains (p))
@@ -444,7 +454,7 @@ void PatchView::endCableDrag (juce::Point<float> p)
             session.mods().appendChild (m, &session.undo);
             break;
         }
-    repaint();
+    canvas->repaint();
 }
 
 void PatchView::addTargetMenu()

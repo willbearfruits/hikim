@@ -21,6 +21,7 @@ public:
         virtual void canvasDoubleClicked (juce::Point<int>) {}   // empty-space double-click
         virtual void canvasMouseUp (juce::Point<float>) {}       // e.g. drop a dragged cable
         virtual void canvasPopup (juce::Point<float>) {}         // right-click on the surface
+        virtual bool canvasClicked (juce::Point<float>) { return false; }  // true = consumed, don't pan
     };
 
     explicit NodeCanvas (Delegate& d);
@@ -45,6 +46,7 @@ private:
 
     Delegate& delegate;
     juce::Point<int> panAtDragStart;
+    bool panning = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (NodeCanvas)
 };

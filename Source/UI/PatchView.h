@@ -2,6 +2,7 @@
 #include "../Engine/AudioEngine.h"
 #include "UIState.h"
 #include "Look.h"
+#include "NodeCanvas.h"
 
 namespace dg
 {
@@ -10,9 +11,12 @@ namespace dg
 // Lorenz chaos, envelope follower) on the left; any parameter in the session
 // can be added as a target node; drag a cable from a source port onto a
 // target to connect, click a cable to edit its amount, right-click to cut it.
-// EXTEND: audio-signal node patching over the same canvas (the engine graph
-// already supports arbitrary routing - this canvas is the modulation half).
-class PatchView : public juce::Component, private juce::Timer
+// Rides the shared NodeCanvas (zoom/pan like WIRES); this view is its
+// modulation delegate. EXTEND: audio-signal node patching over the same
+// canvas (the engine graph already supports arbitrary routing - this canvas
+// is the modulation half).
+class PatchView : public juce::Component, private juce::Timer,
+                  private NodeCanvas::Delegate
 {
 public:
     PatchView (AudioEngine&, SessionModel&, UIState&);
@@ -23,10 +27,7 @@ public:
     void paintOverChildren (juce::Graphics&) override;
     void rebuild();
 
-    void mouseDown (const juce::MouseEvent&) override;
-    void mouseDrag (const juce::MouseEvent&) override;
-    void mouseUp (const juce::MouseEvent&) override;
-    void endCableDrag (juce::Point<float> dropPos);
+    void endCableDrag (juce::Point<float> dropPos);     // canvas coords
 
     AudioEngine& engine;
     SessionModel& session;
@@ -39,7 +40,7 @@ private:
     juce::Point<float> sourcePortPos (const String& srcId) const;
     juce::Point<float> targetPortPos (const String& targetUid) const;
     String srcLabel (const String& srcId) const;
-    ValueTree modAt (juce::Point<float> p) const;       // cable hit test
+    ValueTree modAt (juce::Point<float> p) const;       // cable hit test, canvas coords
     void addTargetMenu();
     void timerCallback() override
     {
@@ -50,8 +51,17 @@ private:
         else if ((int) engine.getModSources().size() != knownSources)
             rebuild();                              // a wires modout tap appeared / vanished
         repaint();
+        canvas->repaint();
     }
 
+    // NodeCanvas::Delegate (the modulation content behind the shared surface)
+    void paintCables (juce::Graphics&) override;
+    void canvasDoubleClicked (juce::Point<int>) override;
+    void canvasMouseUp (juce::Point<float>) override;
+    void canvasPopup (juce::Point<float>) override;
+    bool canvasClicked (juce::Point<float>) override;
+
+    std::unique_ptr<NodeCanvas> canvas;
     juce::OwnedArray<SourceNode> sources;
     juce::OwnedArray<TargetNode> targets;
     juce::TextButton addTargetBtn { "+ TARGET" };

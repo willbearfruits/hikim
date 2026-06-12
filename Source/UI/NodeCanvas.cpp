@@ -51,23 +51,29 @@ void NodeCanvas::paintOverChildren (juce::Graphics& g)
 
 void NodeCanvas::mouseDown (const juce::MouseEvent& e)
 {
+    panning = false;
     if (e.mods.isPopupMenu())
     {
         delegate.canvasPopup (e.position);
         repaint();
         return;
     }
-    panAtDragStart = pan;       // drag empty canvas to pan
+    if (delegate.canvasClicked (e.position))    // content under the click ate it
+        return;
+    panning = true;                             // drag empty canvas to pan
+    panAtDragStart = pan;
 }
 
 void NodeCanvas::mouseDrag (const juce::MouseEvent& e)
 {
+    if (! panning) return;
     pan = panAtDragStart + (e.getOffsetFromDragStart().toFloat() * zoom).toInt();
     applyView();
 }
 
 void NodeCanvas::mouseUp (const juce::MouseEvent& e)
 {
+    panning = false;
     delegate.canvasMouseUp (e.position);
 }
 
