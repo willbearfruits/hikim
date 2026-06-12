@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>HIKIM - experimental DAW with TEETH and WIRES</title>
-  <meta name="description" content="HIKIM is a cross-platform experimental DAW built around pristine arrangement, the TEETH corruption rack and the WIRES patcher.">
+  <title>HIKIM - mega-beta experimental DAW</title>
+  <meta name="description" content="HIKIM is a barely tested work-in-progress DAW with timeline editing, session launching, TEETH and WIRES.">
   <meta property="og:title" content="HIKIM">
-  <meta property="og:description" content="A cross-platform experimental DAW for clean arrangement, opt-in corruption and patchable signal flow.">
+  <meta property="og:description" content="Mega-beta experimental DAW: barely tested, work in progress, with timeline editing, session launching and patching.">
   <meta property="og:type" content="website">
   <meta property="og:image" content="https://willbearfruits.github.io/hikim/assets/og.png">
   <meta property="og:url" content="https://willbearfruits.github.io/hikim/">
@@ -26,34 +26,34 @@
       </div>
     </nav>
     <div class="hero-copy">
-      <p class="kicker">Experimental DAW / JUCE 8 / C++20</p>
+      <p class="kicker">Mega-beta / barely tested / work in progress</p>
       <h1>HIKIM</h1>
-      <p class="lead">Clean arrangement, opt-in destruction, live clip launching and patchable signal flow in one desktop instrument.</p>
+      <p class="lead">A very early DAW-shaped workspace for timeline editing, live clip launching and patchable audio experiments.</p>
       <div class="hero-actions" aria-label="Primary actions">
         <a class="button primary" href="https://github.com/willbearfruits/hikim/raw/main/dist/HIKIM-windows-portable.zip">Windows portable</a>
         <a class="button" href="https://github.com/willbearfruits/hikim/raw/main/dist/HIKIM-linux-x86_64.tar.gz">Linux x86_64</a>
         <a class="button quiet" href="https://github.com/willbearfruits/hikim">Source</a>
       </div>
     </div>
-    <a class="scroll-cue" href="#identity">TEETH / WIRES / SESSION</a>
+    <a class="scroll-cue" href="#identity">Current state / TEETH / WIRES</a>
   </header>
 
   <main>
     <section class="band identity" id="identity">
       <div class="section-head">
-        <p class="kicker">The rule</p>
-        <h2>Breakage is a choice.</h2>
+        <p class="kicker">Current state</p>
+        <h2>Mega-beta, barely tested.</h2>
       </div>
       <div class="identity-grid">
         <article class="identity-item">
           <span class="rail red"></span>
-          <h3>Clean path stays clean</h3>
-          <p>The graph keeps pristine tracks intact until the user explicitly inserts a destructive device.</p>
+          <h3>Use backups</h3>
+          <p>This is public so people can try it, not because it is polished. Test with copies of sessions and audio.</p>
         </article>
         <article class="identity-item">
           <span class="rail amber"></span>
           <h3>TEETH</h3>
-          <p>A corruption rack for performable damage. With modules off, it is required to pass audio bit-identically.</p>
+          <p>An optional experimental effects rack. With modules off, the tests expect it to pass audio through unchanged.</p>
         </article>
         <article class="identity-item">
           <span class="rail green"></span>
@@ -85,7 +85,7 @@
           <small>Portable binary</small>
         </a>
       </div>
-      <p class="note">These are experimental DAW builds. Keep backups of important sessions and source audio.</p>
+      <p class="note">These are mega-beta builds: barely tested, changing quickly, and not something to trust with irreplaceable work.</p>
     </section>
 
     <section class="band screens" id="screens">
@@ -112,13 +112,13 @@
     <section class="band feature-band">
       <div class="section-head">
         <p class="kicker">Working surface</p>
-        <h2>Built like a DAW, bent toward damage.</h2>
+        <h2>A DAW-shaped workbench.</h2>
       </div>
       <div class="feature-columns">
         <ul>
           <li>Audio and MIDI timeline editing</li>
           <li>Session grid launching and scene follow</li>
-          <li>TEETH rack macros and MIDI learn</li>
+          <li>TEETH effects rack macros and MIDI learn</li>
           <li>WIRES device and instrument modes</li>
         </ul>
         <ul>
@@ -140,7 +140,7 @@ cmake --build build -j$(nproc)
 ./build/dawglitch_artefacts/Release/HIKIM
 
 ./build/ruin_tests_artefacts/Release/ruin_tests</code></pre>
-      <p class="note">The test suite enforces the clean-path law for TEETH and WIRES, along with model, clip, instrument and stretch-cache coverage.</p>
+      <p class="note">The test suite covers model, clip, instrument, stretch-cache and TEETH/WIRES passthrough behavior. It is still early software.</p>
     </section>
   </main>
 

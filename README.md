@@ -1,16 +1,16 @@
 # HIKIM
 
 HIKIM is a cross-platform experimental DAW built with JUCE 8, C++20 and CMake.
-It is for clean arrangement, ugly signal damage, live clip launching, and patchable
-audio systems in the same desktop app.
+It is a mega-beta: barely tested, very much work in progress, and meant for
+experiments before serious sessions.
 
-The identity pieces are:
+The current shape:
 
-- **TEETH**: an opt-in corruption rack. With every module off it must pass audio
-  bit-identically.
+- **TEETH**: an optional experimental effects rack. With every module off it must
+  pass audio bit-identically.
 - **WIRES**: a Max-style patcher that can run as an effect device or as an instrument.
 - **Three working views**: ARRANGE, SESSION and PATCHER/Routing over one shared project tree.
-- **Pristine by default**: the clean path stays clean until the user inserts damage.
+- **Clean by default**: tracks stay normal unless you add devices or routing.
 
 Project page: <https://willbearfruits.github.io/hikim/>
 
@@ -26,8 +26,8 @@ Prebuilt artifacts are tracked in this repository:
 | Windows | [`dist/HIKIM-windows-portable.zip`](dist/HIKIM-windows-portable.zip) | Portable `HIKIM.exe` plus README. |
 | Linux x86_64 | [`dist/HIKIM-linux-x86_64.tar.gz`](dist/HIKIM-linux-x86_64.tar.gz) | Portable binary. |
 
-These are experimental builds. Keep a copy of important sessions and audio before
-using any early DAW build for serious work.
+These are mega-beta builds: barely tested, changing quickly, and not something to
+trust with irreplaceable work. Keep backups of sessions and source audio.
 
 ## Screenshots
 
@@ -41,7 +41,7 @@ using any early DAW build for serious work.
   undo/redo, loop selection and drag/drop import.
 - Session grid with quantized clip and scene launching, follow/tracker-style scene
   chaining, slot waveforms and BPM detect/conform.
-- TEETH corruption rack with module ordering, macros, MIDI learn and rack state.
+- TEETH experimental effects rack with module ordering, macros, MIDI learn and rack state.
 - WIRES patcher with oscillators, filters, delay feedback, host `param` bridge and
   OSC in/out.
 - Plugin hosting for VST3 everywhere, AU on macOS and LV2 where supported by JUCE.
@@ -143,8 +143,9 @@ Read [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full graph and subsystem notes
 
 ## Testing
 
-The headless suite covers model operations, clip editing, comp crossfades, TEETH,
-WIRES bit-transparency, built-in instruments and the stretch cache.
+The headless suite covers model operations, clip editing, comp crossfades, TEETH/WIRES
+passthrough behavior, built-in instruments and the stretch cache. That helps catch
+obvious regressions, but this is still barely tested public software.
 
 ```sh
 cmake --build build --target ruin_tests -j$(nproc)
