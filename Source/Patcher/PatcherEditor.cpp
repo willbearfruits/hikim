@@ -57,8 +57,10 @@ class PatcherEditor::NodeComp : public juce::Component
 public:
     NodeComp (PatcherEditor& ed, ValueTree n) : editor (ed), node (n)
     {
-        isNumber = node[id::type].toString() == "number";
-        setSize (isNumber ? 86 : 110, 40);
+        const String type = node[id::type];
+        isNumber = type == "number";
+        isSample = type == "sample~";
+        setSize (isNumber ? 86 : isSample ? 150 : 110, isSample ? 58 : 40);
     }
 
     String uid() const { return node[id::uid].toString(); }
@@ -115,6 +117,19 @@ public:
             drawMeter();
             return;                                 // chip: no ports, no args
         }
+        else if (isSample)
+        {
+            g.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(),
+                                                      10.0f, juce::Font::plain)));
+            const String fpath = node[id::file].toString();
+            const auto fileName = juce::File::isAbsolutePath (fpath) ? juce::File (fpath).getFileName()
+                                                                     : fpath;
+            g.drawText ((type + " " + node[kArgs].toString()).trim()
+                            + (fileName.isNotEmpty() ? "  " + fileName : String()),
+                        getLocalBounds().reduced (6, 0).removeFromTop (16),
+                        juce::Justification::centredLeft);
+            drawWaveform (g, getLocalBounds().reduced (6, 0).withTrimmedTop (17).withTrimmedBottom (7));
+        }
         else if (full)
         {
             g.drawText ((type + " " + node[kArgs].toString()).trim(),
@@ -141,6 +156,30 @@ public:
             drawPort (g, (float) portX (i, ins), true, portType (type, false, i), glow);
         for (int o = 0; o < outs; ++o)
             drawPort (g, (float) portX (o, outs), false, portType (type, true, o), false);
+    }
+
+    void drawWaveform (juce::Graphics& g, juce::Rectangle<int> r) const
+    {
+        auto smp = editor.patcher.sampleBufForNode (uid());
+        if (smp == nullptr || smp->buf.getNumSamples() < 2 || r.isEmpty())
+        {
+            g.setColour (col::dim);
+            g.setFont (juce::Font (juce::FontOptions (8.5f)));
+            g.drawText ("drop audio here", r, juce::Justification::centred);
+            return;
+        }
+        g.setColour (col::nodeSource.withAlpha (0.8f));
+        const int cols = r.getWidth();
+        const int total = smp->buf.getNumSamples();
+        const float midY = (float) r.getCentreY();
+        for (int x = 0; x < cols; ++x)
+        {
+            const int a = (int) ((juce::int64) total * x / cols);
+            const int b = juce::jmax (a + 1, (int) ((juce::int64) total * (x + 1) / cols));
+            const float pk = smp->buf.getMagnitude (0, a, juce::jmin (b, total) - a);
+            const float h = juce::jmax (1.0f, pk * (float) r.getHeight() * 0.5f);
+            g.fillRect ((float) (r.getX() + x), midY - h, 1.0f, h * 2.0f);
+        }
     }
 
     void drawPort (juce::Graphics& g, float cx, bool inlet, char t, bool glow) const
@@ -301,6 +340,7 @@ private:
     juce::ComponentDragger dragger;
     bool dragging = false;
     bool isNumber = false;
+    bool isSample = false;
     bool valueDragging = false;
     float valueAtDragStart = 0.0f;
 };
@@ -532,6 +572,38 @@ void PatcherEditor::rebuildNodes()
     lastPatchHash = h;
     repaint();
     canvas->repaint();
+}
+
+void PatcherEditor::itemDropped (const SourceDetails& d)
+{
+    const String desc = d.description.toString();
+    if (desc == "binfiles")
+    {
+        if (auto* ftc = dynamic_cast<juce::FileTreeComponent*> (d.sourceComponent.get()))
+            if (ftc->getNumSelectedFiles() > 0)
+                dropAudioFile (ftc->getSelectedFile (0).getFullPathName(), d.localPosition);
+        return;
+    }
+    placeObject (desc.fromFirstOccurrenceOf ("obj:", false, false), d.localPosition);
+}
+
+void PatcherEditor::dropAudioFile (const String& path, juce::Point<int> posInEditor)
+{
+    const auto cpos = canvas->getLocalPoint (this, posInEditor);
+
+    // dropped on an existing sample~: just swap its buffer
+    for (auto* nc : nodeComps)
+        if (nc->node[id::type].toString() == "sample~"
+            && nc->getBounds().contains (cpos))
+        {
+            nc->node.setProperty (id::file, path, nullptr);
+            return;
+        }
+
+    auto n = patcher.addNode ("sample~ loop", juce::jmax (4, cpos.x), juce::jmax (4, cpos.y));
+    if (n.isValid())
+        n.setProperty (id::file, path, nullptr);
+    rebuildNodes();
 }
 
 void PatcherEditor::placeObject (const String& specName, juce::Point<int> pos)

@@ -779,6 +779,27 @@ void AudioEngine::updateTransportFromTree()
 
 // ============================================================ lookups
 
+std::shared_ptr<const SampleBuf> AudioEngine::loadSampleBuf (const File& f)
+{
+    const String key = f.getFullPathName();
+    if (auto it = sampleBufCache.find (key); it != sampleBufCache.end())
+        if (auto held = it->second.lock())
+            return held;
+
+    auto r = createAnyReader (f);                       // the one media gate (ffmpeg fallback)
+    if (r == nullptr || r->lengthInSamples <= 0 || r->sampleRate <= 0)
+        return nullptr;
+
+    auto sb = std::make_shared<SampleBuf>();
+    const int len = (int) juce::jmin (r->lengthInSamples,
+                                      (juce::int64) (r->sampleRate * 120.0));   // 2 min cap
+    sb->buf.setSize (2, len);
+    r->read (&sb->buf, 0, len, 0, true, true);
+    sb->sr = r->sampleRate;
+    sampleBufCache[key] = sb;
+    return sb;
+}
+
 ValueTree AudioEngine::resolveTrackRef (const String& ref) const
 {
     const int wanted = ref.getIntValue();           // numeric = 1-based, visible order
@@ -904,6 +925,12 @@ void AudioEngine::rebuildMods()
                 if (auto* st = t.isValid() ? getStrip (t[id::uid].toString()) : nullptr)
                     return st->control;
                 return nullptr;
+            });
+            pp->setSampleProvider ([this] (const String& path)
+                -> std::shared_ptr<const SampleBuf>
+            {
+                if (! File::isAbsolutePath (path)) return nullptr;
+                return loadSampleBuf (File (path));
             });
             for (int i = 0; i < pp->getNumModOuts(); ++i)
                 next->patchSrcs.push_back ({ pp, i, node->second,

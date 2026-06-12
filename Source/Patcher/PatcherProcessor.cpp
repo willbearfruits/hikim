@@ -14,6 +14,7 @@ const std::vector<PatcherProcessor::Spec>& PatcherProcessor::specs()
         { "adc~", oAdc, 0, 2, "", "track audio in (L R)", famSource, "", "ss" },
         { "dac~", oDac, 2, 0, "", "to the track output", famSource, "ss", "" },
         { "chan~", oChan, 0, 2, "1", "tap any channel (track#/name, 'pre')", famSource, "", "ss" },
+        { "sample~", oSample, 3, 2, "", "buffer player (trig, rate, pos 0-1) - drop audio onto it", famSource, "esn", "ss" },
         { "osc~", oOsc, 1, 1, "220", "sine osc (freq)", famSource, "s", "s" },
         { "phasor~", oPhasor, 1, 1, "2", "ramp 0..1 (freq)", famSource, "s", "s" },
         { "noise~", oNoise, 0, 1, "", "white noise", famSource, "", "s" },
@@ -137,6 +138,7 @@ void PatcherProcessor::compile()
     auto prog = std::make_shared<Program>();
     prog->sr = sampleRate;
     chanTaps.clear();
+    sampleBufs.clear();
     bool injectsChanged = false;
     std::set<String> injectSeen;
 
@@ -264,6 +266,16 @@ void PatcherProcessor::compile()
                 if (ring == nullptr) { ring = std::make_shared<InjectRing>(); injectsChanged = true; }
                 injectSeen.insert (uid);
                 o.inj = ring;
+                break;
+            }
+            case oSample:
+            {
+                const String path = n[id::file].toString();
+                o.smp = (sampleProvider != nullptr && path.isNotEmpty()) ? sampleProvider (path) : nullptr;
+                sampleBufs[uid] = o.smp;             // editor waveform face reads this
+                o.sampleLoop = n[kArgs].toString().containsIgnoreCase ("loop");
+                // loop free-runs; an unconnected trig inlet means play-on-load
+                o.samplePlaying = o.smp != nullptr && (o.sampleLoop || o.in0 < 0);
                 break;
             }
             default: break;
@@ -463,6 +475,50 @@ void PatcherProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
                 if (o.inj != nullptr && (i0 != nullptr || i1 != nullptr))
                     o.inj->write (i0 != nullptr ? i0 : i1, i1, n);
                 break;
+
+            case oSample:   // buffer player: trig restarts at pos, rate scales (negative = reverse)
+            {
+                if (out0 == nullptr && out1 == nullptr) break;
+                if (o.smp == nullptr || o.smp->buf.getNumSamples() < 2)
+                {
+                    if (out0) juce::FloatVectorOperations::clear (out0, n);
+                    if (out1) juce::FloatVectorOperations::clear (out1, n);
+                    break;
+                }
+                const float* i2 = o.in2 >= 0 ? bufs.getReadPointer (o.in2) : nullptr;
+                const auto& sbuf = o.smp->buf;
+                const float* sl = sbuf.getReadPointer (0);
+                const float* srr = sbuf.getReadPointer (sbuf.getNumChannels() > 1 ? 1 : 0);
+                const double len = (double) sbuf.getNumSamples() - 1.0;
+                const double srRatio = o.smp->sr / sr;
+                for (int i = 0; i < n; ++i)
+                {
+                    const float trig = i0 ? i0[i] : 0.0f;
+                    if (trig > 0.5f && o.lastTrig <= 0.5f)
+                    {
+                        const double pos = i2 ? juce::jlimit (0.0, 1.0, (double) i2[i]) : 0.0;
+                        o.ph = pos * len;
+                        o.samplePlaying = true;
+                    }
+                    o.lastTrig = trig;
+
+                    float l = 0.0f, r = 0.0f;
+                    if (o.samplePlaying)
+                    {
+                        const int idx = (int) o.ph;
+                        const float frac = (float) (o.ph - idx);
+                        l = sl[idx] + (sl[idx + 1] - sl[idx]) * frac;
+                        r = srr[idx] + (srr[idx + 1] - srr[idx]) * frac;
+                        const double rate = juce::jlimit (-8.0, 8.0, i1 ? (double) i1[i] : 1.0);
+                        o.ph += rate * srRatio;
+                        if (o.ph >= len) { if (o.sampleLoop) o.ph -= len; else o.samplePlaying = false; }
+                        if (o.ph < 0.0)  { if (o.sampleLoop) o.ph += len; else o.samplePlaying = false; }
+                    }
+                    if (out0) out0[i] = l;
+                    if (out1) out1[i] = r;
+                }
+                break;
+            }
 
             case oClock:    // transport as numbers: bpm, beat phase, bar phase, bar #
             {

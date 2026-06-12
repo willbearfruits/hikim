@@ -571,6 +571,79 @@ struct PatcherTests : juce::UnitTest
         sb.clear();
         mstrip.processBlock (sb, midi);         // nothing written this block
         expect (sb.getMagnitude (0, 0, 256) < 1.0e-6f, "dry ring is silent");
+
+        beginTest ("sample~ plays its buffer, loops, and follows rate");
+        auto sample = std::make_shared<SampleBuf>();
+        sample->sr = 48000.0;
+        sample->buf.setSize (2, 1000);
+        for (int i = 0; i < 1000; ++i)
+        {
+            sample->buf.setSample (0, i, (float) i / 1000.0f);
+            sample->buf.setSample (1, i, -(float) i / 1000.0f);
+        }
+        PatcherProcessor p12;
+        p12.setPlayConfigDetails (2, 2, 48000.0, 256);
+        p12.setSampleProvider ([sample] (const String& path)
+                               -> std::shared_ptr<const SampleBuf>
+                               { return path == "fake://break" ? sample : nullptr; });
+        auto smpN = p12.addNode ("sample~ loop", 0, 0);
+        smpN.setProperty (id::file, "fake://break", nullptr);
+        ValueTree dac12;
+        for (const auto& n : p12.patch)
+            if (n[id::type].toString() == "dac~") dac12 = n;
+        p12.addCable (smpN[id::uid].toString(), 0, dac12[id::uid].toString(), 0);
+        p12.addCable (smpN[id::uid].toString(), 1, dac12[id::uid].toString(), 1);
+        p12.prepareToPlay (48000.0, 256);
+        juce::AudioBuffer<float> b12 (2, 256);
+        b12.clear();
+        p12.processBlock (b12, midi);
+        bool follows = true;
+        for (int i = 0; i < 256 && follows; ++i)
+            follows = std::abs (b12.getSample (0, i) - (float) i / 1000.0f) < 1.0e-3f
+                   && std::abs (b12.getSample (1, i) + (float) i / 1000.0f) < 1.0e-3f;
+        expect (follows, "buffer content reaches dac~ at unit rate");
+        for (int k = 0; k < 5; ++k) { b12.clear(); p12.processBlock (b12, midi); }
+        expect (b12.getMagnitude (0, 0, 256) > 0.0f, "loop keeps playing past the end");
+
+        beginTest ("sample~ rate input scales playback");
+        PatcherProcessor p13;
+        p13.setPlayConfigDetails (2, 2, 48000.0, 256);
+        p13.setSampleProvider ([sample] (const String&)
+                               -> std::shared_ptr<const SampleBuf> { return sample; });
+        auto smp2 = p13.addNode ("sample~ loop", 0, 0);
+        smp2.setProperty (id::file, "x", nullptr);
+        auto rateN = p13.addNode ("sig 2", 0, 0);
+        ValueTree dac13;
+        for (const auto& n : p13.patch)
+            if (n[id::type].toString() == "dac~") dac13 = n;
+        p13.addCable (rateN[id::uid].toString(), 0, smp2[id::uid].toString(), 1);
+        p13.addCable (smp2[id::uid].toString(), 0, dac13[id::uid].toString(), 0);
+        p13.prepareToPlay (48000.0, 256);
+        juce::AudioBuffer<float> b13 (2, 256);
+        b13.clear();
+        p13.processBlock (b13, midi);
+        bool doubled = true;
+        for (int i = 0; i < 128 && doubled; ++i)
+            doubled = std::abs (b13.getSample (0, i) - (float) (2 * i) / 1000.0f) < 2.0e-3f;
+        expect (doubled, "rate 2 reads twice as fast");
+
+        beginTest ("sample~ with no resolvable file is silent");
+        PatcherProcessor p14;
+        p14.setPlayConfigDetails (2, 2, 48000.0, 256);
+        p14.setSampleProvider ([] (const String&) -> std::shared_ptr<const SampleBuf> { return nullptr; });
+        auto smp3 = p14.addNode ("sample~ loop", 0, 0);
+        smp3.setProperty (id::file, "missing", nullptr);
+        ValueTree dac14;
+        for (const auto& n : p14.patch)
+            if (n[id::type].toString() == "dac~") dac14 = n;
+        p14.addCable (smp3[id::uid].toString(), 0, dac14[id::uid].toString(), 0);
+        p14.prepareToPlay (48000.0, 256);
+        juce::AudioBuffer<float> b14 (2, 256);
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < 256; ++i)
+                b14.setSample (ch, i, 0.5f);
+        p14.processBlock (b14, midi);
+        expect (b14.getMagnitude (0, 0, 256) < 1.0e-9f, "no buffer, no sound");
     }
 };
 

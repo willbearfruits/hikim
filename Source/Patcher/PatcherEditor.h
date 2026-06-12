@@ -15,6 +15,7 @@ namespace dg
 class PatcherEditor : public juce::AudioProcessorEditor,
                       public juce::DragAndDropContainer,
                       public juce::DragAndDropTarget,
+                      public juce::FileDragAndDropTarget,
                       private juce::Timer,
                       private NodeCanvas::Delegate
 {
@@ -33,14 +34,21 @@ public:
     bool isCableDragging() const { return draggingCable; }
     float canvasZoom() const;                      // node faces LOD on this
 
-    // palette drags
+    // palette drags + FILES bin drags (audio lands as a sample~)
     bool isInterestedInDragSource (const SourceDetails& d) override
-    { return d.description.toString().startsWith ("obj:"); }
-    void itemDropped (const SourceDetails& d) override
     {
-        placeObject (d.description.toString().fromFirstOccurrenceOf ("obj:", false, false),
-                     d.localPosition);
+        const String desc = d.description.toString();
+        return desc.startsWith ("obj:") || desc == "binfiles";
     }
+    void itemDropped (const SourceDetails& d) override;
+
+    // OS file drags: drop audio anywhere on the canvas
+    bool isInterestedInFileDrag (const juce::StringArray&) override { return true; }
+    void filesDropped (const juce::StringArray& files, int x, int y) override
+    {
+        if (! files.isEmpty()) dropAudioFile (files[0], { x, y });
+    }
+    void dropAudioFile (const String& path, juce::Point<int> posInEditor);
 
     PatcherProcessor& patcher;
     static constexpr int kPaletteW = 168;

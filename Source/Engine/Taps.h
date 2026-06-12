@@ -113,6 +113,14 @@ struct InjectRing
     std::atomic<juce::int64> wTotal { 0 }, rTotal { 0 };
 };
 
+// An immutable loaded sample for WIRES sample~ (engine loads via
+// createAnyReader and caches; patches share buffers by path).
+struct SampleBuf
+{
+    juce::AudioBuffer<float> buf;
+    double sr = 48000.0;
+};
+
 // Patch-driven channel strip control (WIRES `strip` object). The patcher
 // writes a target value stamped with the strip's block counter; the strip
 // honours it only while the stamp stays fresh (<= 1 block old), so deleting

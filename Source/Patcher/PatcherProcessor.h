@@ -23,7 +23,8 @@ public:
     {
         oAdc, oDac, oOsc, oPhasor, oNoise, oLfo, oMul, oAdd, oLores, oHipass,
         oDelay, oTanh, oSah, oEnv, oMetro, oRandom, oScale, oSig, oParam,
-        oOscIn, oOscOut, oModOut, oNumber, oChan, oStrip, oClock, oMaster, oUnknown
+        oOscIn, oOscOut, oModOut, oNumber, oChan, oStrip, oClock, oMaster,
+        oSample, oUnknown
     };
     // NODES.md object families (palette sections + box/cable colours)
     enum Family { famSource, famEffect, famMath, famTime, famRouting };
@@ -94,6 +95,16 @@ public:
     using StripCtlProvider = std::function<std::shared_ptr<StripControl> (const String& ref)>;
     void setStripCtlProvider (StripCtlProvider f) { stripCtlProvider = std::move (f); compile(); }
 
+    // ---- sample~: the engine resolves an absolute path to a cached buffer
+    // (always through AudioEngine::createAnyReader); tests inject fakes.
+    using SampleProvider = std::function<std::shared_ptr<const SampleBuf> (const String& path)>;
+    void setSampleProvider (SampleProvider f) { sampleProvider = std::move (f); compile(); }
+    std::shared_ptr<const SampleBuf> sampleBufForNode (const String& nodeUid) const  // waveform faces
+    {
+        auto it = sampleBufs.find (nodeUid);
+        return it != sampleBufs.end() ? it->second : nullptr;
+    }
+
     // ---- master~: rings this patch injects into the master bus. Rings are
     // stable per node uid across recompiles, so the set only changes when
     // master~ objects are added/removed — that's when onInjectsChanged fires
@@ -122,6 +133,8 @@ private:
         std::shared_ptr<ChanTap> tap;                // chan~ source ring
         std::shared_ptr<StripControl> ctl;           // strip target
         std::shared_ptr<InjectRing> inj;             // master~ ring
+        std::shared_ptr<const SampleBuf> smp;        // sample~ buffer
+        bool sampleLoop = false, samplePlaying = false;
         std::atomic<float>* hostParam = nullptr;
         int modIdx = -1;                             // modout slot
     };
@@ -153,8 +166,10 @@ private:
     std::map<String, std::shared_ptr<std::atomic<float>>> numberVals;   // message thread map
     ChanTapProvider chanTapProvider;
     StripCtlProvider stripCtlProvider;
+    SampleProvider sampleProvider;
     std::map<String, std::shared_ptr<ChanTap>> chanTaps;                // node uid -> resolved ring
     std::map<String, std::shared_ptr<InjectRing>> injectRings;          // node uid -> master~ ring
+    std::map<String, std::shared_ptr<const SampleBuf>> sampleBufs;      // node uid -> loaded buffer
 
     double sampleRate = 48000.0;
     int blockSize = 512;
