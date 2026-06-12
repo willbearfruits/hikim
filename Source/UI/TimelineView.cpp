@@ -1319,6 +1319,23 @@ public:
             return;
         }
 
+        // pencil: drag out a MIDI clip on an instrument lane (first click only;
+        // a double-click's second press must not draw again)
+        if (tv.ui.tool == Tool::pencil)
+        {
+            const int rowIdx = tv.rowIndexAtY (e.y);
+            if (rowIdx >= 0 && ! tv.rows[(size_t) rowIdx].lane.isValid()
+                && tv.rows[(size_t) rowIdx].track[id::type].toString() == "midi")
+            {
+                if (e.getNumberOfClicks() == 1)
+                {
+                    drawStartSec = tv.snap (juce::jmax (0.0, tv.xToTime (e.x)));
+                    drawClip = createMidiClipAt (tv.rows[(size_t) rowIdx].track, drawStartSec);
+                }
+                return;
+            }
+        }
+
         // marquee select on empty space
         marqueeAnchor = e.getPosition();
         marqueeRect = {};
@@ -1330,6 +1347,12 @@ public:
 
     void mouseDrag (const juce::MouseEvent& e) override
     {
+        if (drawClip.isValid())                // pencil: the clip's tail follows the drag
+        {
+            const double end = tv.snap (juce::jmax (0.0, tv.xToTime (e.x)));
+            drawClip.setProperty (id::length, juce::jmax (0.05, end - drawStartSec), &tv.session.undo);
+            return;
+        }
         if (! marqueeActive) return;
         marqueeRect = juce::Rectangle<int> (marqueeAnchor, e.getPosition());
         // select clips intersecting the band
@@ -1347,12 +1370,27 @@ public:
 
     void mouseUp (const juce::MouseEvent&) override
     {
+        drawClip = {};
         marqueeActive = false;
         repaint();
     }
 
+    void mouseMove (const juce::MouseEvent& e) override
+    {
+        if (tv.ui.tool == Tool::pencil)
+        {
+            const int rowIdx = tv.rowIndexAtY (e.y);
+            const bool inst = rowIdx >= 0 && ! tv.rows[(size_t) rowIdx].lane.isValid()
+                              && tv.rows[(size_t) rowIdx].track[id::type].toString() == "midi";
+            setMouseCursor (inst ? juce::MouseCursor::CopyingCursor : juce::MouseCursor::NormalCursor);
+            return;
+        }
+        setMouseCursor (juce::MouseCursor::NormalCursor);
+    }
+
     void mouseDoubleClick (const juce::MouseEvent& e) override
     {
+        if (tv.ui.tool == Tool::pencil) return;   // the single click already drew the clip
         // double-click an empty Inst row: clip appears + piano roll opens
         const int rowIdx = tv.rowIndexAtY (e.y);
         if (rowIdx < 0 || tv.rows[(size_t) rowIdx].lane.isValid()) return;
@@ -1391,6 +1429,8 @@ private:
     juce::Point<int> marqueeAnchor;
     juce::Rectangle<int> marqueeRect;
     bool marqueeActive = false;
+    ValueTree drawClip;                      // pencil drag in progress
+    double drawStartSec = 0.0;
 };
 
 // =========================================================================== ToolBar
@@ -1439,6 +1479,13 @@ namespace
         p.addLineSegment ({ 11, 1, 1, 11 }, 2.4f);
         return p;
     }
+    juce::Path makePencilIcon()
+    {
+        juce::Path p;                                   // body + tip
+        p.addQuadrilateral (9.0f, 0.0f, 12.0f, 3.0f, 4.5f, 10.5f, 1.5f, 7.5f);
+        p.addTriangle (0.0f, 12.0f, 0.6f, 8.5f, 3.5f, 11.4f);
+        return p;
+    }
 }
 
 class TimelineToolBar : public juce::Component
@@ -1450,6 +1497,7 @@ public:
         addBtn (makeArrowIcon(), "select (1)", Tool::select);
         addBtn (makeRazorIcon(), "razor (2)", Tool::razor);
         addBtn (makeEraseIcon(), "erase (3)", Tool::erase);
+        addBtn (makePencilIcon(), "draw a MIDI clip (4)", Tool::pencil);
         sync();
     }
 
@@ -1491,6 +1539,7 @@ private:
 TimelineView::TimelineView (AudioEngine& e, SessionModel& s, PluginHost& p, UIState& u)
     : engine (e), session (s), plugins (p), ui (u)
 {
+    setWantsKeyboardFocus (true);            // clicking the timeline reclaims keys from panels
     ruler = std::make_unique<Ruler> (*this);
     addAndMakeVisible (*ruler);
 

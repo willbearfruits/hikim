@@ -378,4 +378,91 @@ double resizeOverlap (SessionModel& session, ValueTree left, ValueTree right,
     return ov;
 }
 
+// ---- piano-roll note ops ------------------------------------------------------
+
+std::vector<NoteData> copyNotes (const ValueTree& clip, const std::set<int>& noteIndices)
+{
+    std::vector<NoteData> out;
+    auto notes = clip.getChildWithName (id::NOTES);
+    double earliest = std::numeric_limits<double>::max();
+    for (const int i : noteIndices)
+    {
+        auto n = notes.getChild (i);
+        if (! n.isValid()) continue;
+        out.push_back ({ (double) n[id::beat], (double) n[id::len],
+                         (int) n[id::pitch], (int) n[id::vel] });
+        earliest = juce::jmin (earliest, out.back().beat);
+    }
+    for (auto& nd : out)
+        nd.beat -= earliest;
+    return out;
+}
+
+std::vector<int> pasteNotes (SessionModel& session, ValueTree clip,
+                             const std::vector<NoteData>& items, double atBeat)
+{
+    std::vector<int> newIndices;
+    if (items.empty() || ! clip.isValid()) return newIndices;
+
+    auto notes = clip.getOrCreateChildWithName (id::NOTES, nullptr);
+    session.undo.beginNewTransaction ("paste notes");
+    for (const auto& nd : items)
+    {
+        ValueTree n (id::NOTE);
+        n.setProperty (id::beat, juce::jmax (0.0, atBeat + nd.beat), nullptr);
+        n.setProperty (id::len, nd.len, nullptr);
+        n.setProperty (id::pitch, nd.pitch, nullptr);
+        n.setProperty (id::vel, nd.vel, nullptr);
+        notes.appendChild (n, &session.undo);
+        newIndices.push_back (notes.indexOf (n));
+    }
+    return newIndices;
+}
+
+std::vector<int> duplicateNotes (SessionModel& session, ValueTree clip,
+                                 const std::set<int>& noteIndices)
+{
+    std::vector<int> newIndices;
+    auto notes = clip.getChildWithName (id::NOTES);
+    if (! notes.isValid()) return newIndices;
+
+    std::vector<NoteData> items;
+    double lo = std::numeric_limits<double>::max(), hi = 0.0;
+    for (const int i : noteIndices)
+    {
+        auto n = notes.getChild (i);
+        if (! n.isValid()) continue;
+        items.push_back ({ (double) n[id::beat], (double) n[id::len],
+                           (int) n[id::pitch], (int) n[id::vel] });
+        lo = juce::jmin (lo, items.back().beat);
+        hi = juce::jmax (hi, items.back().beat + items.back().len);
+    }
+    if (items.empty()) return newIndices;
+
+    const double span = juce::jmax (0.0, hi - lo);
+    session.undo.beginNewTransaction ("duplicate notes");
+    for (const auto& nd : items)
+    {
+        ValueTree n (id::NOTE);
+        n.setProperty (id::beat, nd.beat + span, nullptr);
+        n.setProperty (id::len, nd.len, nullptr);
+        n.setProperty (id::pitch, nd.pitch, nullptr);
+        n.setProperty (id::vel, nd.vel, nullptr);
+        notes.appendChild (n, &session.undo);
+        newIndices.push_back (notes.indexOf (n));
+    }
+    return newIndices;
+}
+
+void deleteNotes (SessionModel& session, ValueTree clip, const std::set<int>& noteIndices)
+{
+    auto notes = clip.getChildWithName (id::NOTES);
+    if (! notes.isValid() || noteIndices.empty()) return;
+
+    session.undo.beginNewTransaction ("delete notes");
+    for (auto it = noteIndices.rbegin(); it != noteIndices.rend(); ++it)
+        if (*it >= 0 && *it < notes.getNumChildren())
+            notes.removeChild (*it, &session.undo);
+}
+
 } // namespace dg::clipops

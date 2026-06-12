@@ -141,7 +141,10 @@ public:
             const int y = noteY (n[id::pitch]);
             if (e.x >= x0 && e.x <= x1 + 2 && e.y >= y && e.y < y + kNoteH)
             {
-                nearRightEdge = e.x > x1 - 5;
+                // tail zone scales with the note (5..8px) and never eats a
+                // note too narrow to also grab by the body
+                const int w = x1 - x0;
+                nearRightEdge = w > 10 && e.x > x1 - juce::jmax (5, juce::jmin (8, w / 3));
                 return i;
             }
         }
@@ -151,14 +154,15 @@ public:
     void mouseDown (const juce::MouseEvent& e) override
     {
         if (! pr.clip.isValid()) return;
+        pr.grabKeyboardFocus();                // keys 1/2/3 + note clipboard act on the roll now
         pr.session.undo.beginNewTransaction ("piano roll");
         auto notes = pr.clip.getChildWithName (id::NOTES);
         marquee = false;
-        dragMode = 0;
+        dragMode = Drag::none;
 
-        if (e.y >= notesAreaH())               // velocity strip
+        if (e.y >= notesAreaH())               // velocity strip works in every tool
         {
-            dragMode = 3;
+            dragMode = Drag::velocity;
             editVelocity (e);
             return;
         }
@@ -166,9 +170,18 @@ public:
         bool rightEdge = false;
         const int hit = hitNote (e, rightEdge);
 
-        if (e.mods.isPopupMenu())
+        if (e.mods.isPopupMenu())              // right-click erases in every tool
         {
             if (hit >= 0) { notes.removeChild (hit, &pr.session.undo); pr.selected.clear(); repaint(); }
+            return;
+        }
+
+        if (pr.tool == RollTool::erase)
+        {
+            dragMode = Drag::eraseSweep;
+            pr.selected.clear();
+            if (hit >= 0) notes.removeChild (hit, &pr.session.undo);
+            repaint();
             return;
         }
 
@@ -177,39 +190,47 @@ public:
             if (! e.mods.isShiftDown() && pr.selected.count (hit) == 0)
                 pr.selected.clear();
             pr.selected.insert (hit);
-            dragMode = rightEdge ? 2 : 1;
+            // pencil resizes from anywhere on the note; select needs the tail
+            dragMode = (pr.tool == RollTool::pencil || rightEdge) ? Drag::resize : Drag::move;
             dragAnchor = e.position;
             origNotes.clear();
             for (int i : pr.selected)
             {
                 auto n = notes.getChild (i);
-                origNotes[i] = { (double) n[id::beat], (double) n[id::len], (int) n[id::pitch] };
+                if (n.isValid())
+                    origNotes[i] = { (double) n[id::beat], (double) n[id::len], (int) n[id::pitch] };
             }
         }
-        else if (e.mods.isShiftDown() || e.mods.isAltDown())
+        else if (pr.tool == RollTool::pencil && ! e.mods.isShiftDown())
         {
-            marquee = true;
-            marqueeRect = { e.x, e.y, 0, 0 };
-            marqueeAnchor = e.getPosition();
-        }
-        else
-        {
-            // draw a new note
+            // draw: the note is born one grid long and its tail follows the drag
             const double grid = pr.gridBeats();
-            const double b = std::floor ((double) e.x / pr.ppb / grid) * grid;
+            const double b = juce::jmax (0.0, e.mods.isAltDown()
+                                                  ? (double) e.x / pr.ppb
+                                                  : std::floor ((double) e.x / pr.ppb / grid) * grid);
             const int pitch = pr.snapPitch (yToNote (e.y));
             ValueTree n (id::NOTE);
-            n.setProperty (id::beat, juce::jmax (0.0, b), nullptr);
+            n.setProperty (id::beat, b, nullptr);
             n.setProperty (id::len, grid, nullptr);
             n.setProperty (id::pitch, pitch, nullptr);
             n.setProperty (id::vel, 100, nullptr);
             notes.appendChild (n, &pr.session.undo);
             pr.selected.clear();
             pr.selected.insert (notes.indexOf (n));
-            dragMode = 1;
+            dragMode = Drag::resize;
             dragAnchor = e.position;
             origNotes.clear();
-            origNotes[notes.indexOf (n)] = { (double) n[id::beat], grid, pitch };
+            origNotes[notes.indexOf (n)] = { b, grid, pitch };
+        }
+        else
+        {
+            // empty space rubber-bands; Shift keeps what you already had
+            marquee = true;
+            marqueeRect = { e.x, e.y, 0, 0 };
+            marqueeAnchor = e.getPosition();
+            marqueeBase = e.mods.isShiftDown() ? pr.selected : std::set<int>();
+            if (! e.mods.isShiftDown())
+                pr.selected.clear();
         }
         repaint();
     }
@@ -242,11 +263,11 @@ public:
         if (! pr.clip.isValid()) return;
         auto notes = pr.clip.getChildWithName (id::NOTES);
 
-        if (dragMode == 3) { editVelocity (e); return; }
+        if (dragMode == Drag::velocity) { editVelocity (e); return; }
         if (marquee)
         {
             marqueeRect = juce::Rectangle<int> (marqueeAnchor, e.getPosition());
-            pr.selected.clear();
+            pr.selected = marqueeBase;
             for (int i = 0; i < notes.getNumChildren(); ++i)
             {
                 auto n = notes.getChild (i);
@@ -257,7 +278,14 @@ public:
             repaint();
             return;
         }
-        if (dragMode == 0) return;
+        if (dragMode == Drag::eraseSweep)
+        {
+            bool edge = false;
+            const int hit = hitNote (e, edge);
+            if (hit >= 0) { notes.removeChild (hit, &pr.session.undo); repaint(); }
+            return;
+        }
+        if (dragMode == Drag::none) return;
 
         const double db = (e.position.x - dragAnchor.x) / pr.ppb;
         const int dp = (int) std::round ((dragAnchor.y - e.position.y) / (float) kNoteH);
@@ -268,14 +296,14 @@ public:
         {
             auto n = notes.getChild (i);
             if (! n.isValid()) continue;
-            if (dragMode == 1)
+            if (dragMode == Drag::move)
             {
                 double nb = on.beat + db;
                 if (! fine) nb = std::round (nb / grid) * grid;
                 n.setProperty (id::beat, juce::jmax (0.0, nb), &pr.session.undo);
                 n.setProperty (id::pitch, pr.snapPitch (juce::jlimit (kLowNote, kHighNote, on.pitch + dp)), &pr.session.undo);
             }
-            else
+            else        // Drag::resize: every selected tail moves together, relative
             {
                 double nl = on.len + db;
                 if (! fine) nl = juce::jmax (grid, std::round (nl / grid) * grid);
@@ -288,8 +316,23 @@ public:
     void mouseUp (const juce::MouseEvent&) override
     {
         marquee = false;
-        dragMode = 0;
+        dragMode = Drag::none;
         repaint();
+    }
+
+    void mouseMove (const juce::MouseEvent& e) override
+    {
+        if (! pr.clip.isValid()) { setMouseCursor (juce::MouseCursor::NormalCursor); return; }
+        if (e.y >= notesAreaH()) { setMouseCursor (juce::MouseCursor::UpDownResizeCursor); return; }
+        if (pr.tool == RollTool::erase) { setMouseCursor (juce::MouseCursor::CrosshairCursor); return; }
+        bool rightEdge = false;
+        const int hit = hitNote (e, rightEdge);
+        if (pr.tool == RollTool::pencil)
+            setMouseCursor (hit >= 0 ? juce::MouseCursor::LeftRightResizeCursor
+                                     : juce::MouseCursor::CopyingCursor);
+        else
+            setMouseCursor (hit >= 0 && rightEdge ? juce::MouseCursor::LeftRightResizeCursor
+                                                  : juce::MouseCursor::NormalCursor);
     }
 
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
@@ -311,8 +354,100 @@ private:
     juce::Point<float> dragAnchor;
     juce::Point<int> marqueeAnchor;
     juce::Rectangle<int> marqueeRect;
+    std::set<int> marqueeBase;               // shift-marquee adds to this
     bool marquee = false;
-    int dragMode = 0;     // 1 move, 2 resize, 3 velocity
+    enum class Drag { none, move, resize, velocity, eraseSweep };
+    Drag dragMode = Drag::none;
+};
+
+// =========================================================================== ToolStrip
+
+namespace
+{
+    class RollToolButton : public juce::Button
+    {
+    public:
+        RollToolButton (const juce::Path& p, const String& name) : juce::Button (name), icon (p) {}
+
+        void paintButton (juce::Graphics& g, bool over, bool down) override
+        {
+            auto r = getLocalBounds().toFloat().reduced (1.0f);
+            if (getToggleState())  { g.setColour (col::accent.withAlpha (0.3f)); g.fillRoundedRectangle (r, 2.0f); }
+            else if (over || down) { g.setColour (col::panelHi); g.fillRoundedRectangle (r, 2.0f); }
+            g.setColour (getToggleState() ? col::accent : col::text);
+            g.fillPath (icon, icon.getTransformToScaleToFit (r.reduced (4.0f), true));
+        }
+
+    private:
+        juce::Path icon;
+    };
+
+    juce::Path rollArrowIcon()
+    {
+        juce::Path p;
+        p.startNewSubPath (0, 0); p.lineTo (0, 14); p.lineTo (4, 10);
+        p.lineTo (7, 16); p.lineTo (9.5f, 14.5f); p.lineTo (6.5f, 9);
+        p.lineTo (11, 8.5f); p.closeSubPath();
+        return p;
+    }
+    juce::Path rollPencilIcon()
+    {
+        juce::Path p;                                   // body + tip
+        p.addQuadrilateral (9.0f, 0.0f, 12.0f, 3.0f, 4.5f, 10.5f, 1.5f, 7.5f);
+        p.addTriangle (0.0f, 12.0f, 0.6f, 8.5f, 3.5f, 11.4f);
+        return p;
+    }
+    juce::Path rollEraseIcon()
+    {
+        juce::Path p;
+        p.addLineSegment ({ 1, 1, 11, 11 }, 2.4f);
+        p.addLineSegment ({ 11, 1, 1, 11 }, 2.4f);
+        return p;
+    }
+}
+
+class PianoRoll::ToolStrip : public juce::Component
+{
+public:
+    explicit ToolStrip (PianoRoll& o) : pr (o)
+    {
+        add (rollArrowIcon(), "select (1): drag empty space to rubber-band, note tails resize", RollTool::select);
+        add (rollPencilIcon(), "pencil (2): drag draws a note, drag a note to resize it, right-click erases", RollTool::pencil);
+        add (rollEraseIcon(), "erase (3): click or sweep notes away", RollTool::erase);
+        sync();
+    }
+
+    void sync()
+    {
+        for (int i = 0; i < buttons.size(); ++i)
+            buttons[i]->setToggleState (pr.tool == tools[(size_t) i], juce::dontSendNotification);
+        repaint();
+    }
+
+    void resized() override
+    {
+        auto b = getLocalBounds();
+        for (auto* btn : buttons)
+        {
+            btn->setBounds (b.removeFromLeft (24));
+            b.removeFromLeft (2);
+        }
+    }
+
+private:
+    void add (const juce::Path& icon, const String& name, RollTool t)
+    {
+        auto* b = buttons.add (new RollToolButton (icon, name));
+        b->setTooltip (name);
+        b->setWantsKeyboardFocus (false);    // the roll keeps the keys, not the button
+        b->onClick = [this, t] { pr.setTool (t); };
+        addAndMakeVisible (b);
+        tools.push_back (t);
+    }
+
+    PianoRoll& pr;
+    juce::OwnedArray<RollToolButton> buttons;
+    std::vector<RollTool> tools;
 };
 
 // =========================================================================== PianoRoll
@@ -320,12 +455,16 @@ private:
 PianoRoll::PianoRoll (AudioEngine& e, SessionModel& s, UIState& u)
     : engine (e), session (s), ui (u)
 {
+    setWantsKeyboardFocus (true);            // clicking anywhere in the roll routes keys here
     keys = std::make_unique<Keys> (*this);
     grid = std::make_unique<Grid> (*this);
     vp.setViewedComponent (grid.get(), false);
     addAndMakeVisible (vp);
     keysHolder.addAndMakeVisible (*keys);
     addAndMakeVisible (keysHolder);
+
+    toolStrip = std::make_unique<ToolStrip> (*this);
+    addAndMakeVisible (*toolStrip);
 
     gridBox.addItemList ({ "1/4", "1/8", "1/16", "1/32", "1/8T", "1/16T", "1/64" }, 1);
     gridBox.setSelectedItemIndex (2);
@@ -373,6 +512,100 @@ void PianoRoll::setClip (ValueTree midiClip)
     resized();
     vp.setViewPosition (0, (kHighNote - 84) * kNoteH);
     repaint();
+}
+
+bool PianoRoll::keyPressed (const juce::KeyPress& k)
+{
+    if (! clip.isValid()) return false;
+    const int kc = k.getKeyCode();
+    auto is = [kc] (char c) { return kc == c || kc == c + 32; };   // letter, either case
+
+    if (k.getModifiers().isCommandDown())
+    {
+        if (is ('C')) { copySelectedNotes (false); return true; }
+        if (is ('X')) { copySelectedNotes (true); return true; }
+        if (is ('V')) { pasteClipboard(); return true; }
+        if (is ('D')) { duplicateSelectedNotes(); return true; }
+        if (is ('A')) { selectAllNotes(); return true; }
+        return false;                        // Ctrl+Z/S/... stay global
+    }
+    if (kc == '1' || kc == '2' || kc == '3')
+    {
+        setTool (kc == '1' ? RollTool::select : kc == '2' ? RollTool::pencil : RollTool::erase);
+        return true;
+    }
+    if (kc == juce::KeyPress::deleteKey || kc == juce::KeyPress::backspaceKey)
+    {
+        deleteSelectedNotes();
+        return true;                         // never falls through to clip delete mid-edit
+    }
+    if (kc == juce::KeyPress::escapeKey && ! selected.empty())
+    {
+        selected.clear();
+        grid->repaint();
+        return true;
+    }
+    return false;
+}
+
+void PianoRoll::copySelectedNotes (bool cut)
+{
+    if (! clip.isValid() || selected.empty()) return;
+    noteClipboard = clipops::copyNotes (clip, selected);
+    if (cut)
+    {
+        clipops::deleteNotes (session, clip, selected);
+        selected.clear();
+        grid->repaint();
+    }
+}
+
+void PianoRoll::pasteClipboard()
+{
+    if (! clip.isValid() || noteClipboard.empty()) return;
+    auto map = engine.getTempoMap();
+    const double phBeat = map->secondsToBeats (engine.getPositionSeconds())
+                        - map->secondsToBeats ((double) clip[id::start]);
+    double at = 0.0;                         // playhead elsewhere: land at the clip start
+    if (phBeat > 0.0 && phBeat < clipLenBeats())
+        at = std::round (phBeat / gridBeats()) * gridBeats();
+    const auto fresh = clipops::pasteNotes (session, clip, noteClipboard, at);
+    selected = std::set<int> (fresh.begin(), fresh.end());
+    grid->repaint();
+}
+
+void PianoRoll::duplicateSelectedNotes()
+{
+    if (! clip.isValid() || selected.empty()) return;
+    const auto fresh = clipops::duplicateNotes (session, clip, selected);
+    if (! fresh.empty())
+        selected = std::set<int> (fresh.begin(), fresh.end());
+    grid->repaint();
+}
+
+void PianoRoll::deleteSelectedNotes()
+{
+    if (! clip.isValid() || selected.empty()) return;
+    clipops::deleteNotes (session, clip, selected);
+    selected.clear();
+    grid->repaint();
+}
+
+void PianoRoll::selectAllNotes()
+{
+    if (! clip.isValid()) return;
+    auto notes = clip.getChildWithName (id::NOTES);
+    selected.clear();
+    for (int i = 0; i < notes.getNumChildren(); ++i)
+        selected.insert (i);
+    grid->repaint();
+}
+
+void PianoRoll::setTool (RollTool t)
+{
+    tool = t;
+    if (toolStrip != nullptr)
+        toolStrip->sync();
 }
 
 double PianoRoll::gridBeats() const
@@ -466,7 +699,9 @@ void PianoRoll::resized()
 {
     auto b = getLocalBounds();
     auto bar = b.removeFromTop (26).reduced (2);
-    clipLabel.setBounds (bar.removeFromLeft (150));
+    toolStrip->setBounds (bar.removeFromLeft (78).reduced (0, 1));
+    bar.removeFromLeft (6);
+    clipLabel.setBounds (bar.removeFromLeft (120));
     gridBox.setBounds (bar.removeFromLeft (70).reduced (1));
     bar.removeFromLeft (4);
     quantBtn.setBounds (bar.removeFromLeft (74).reduced (1));
