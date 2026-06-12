@@ -438,6 +438,19 @@ struct PatcherTests : juce::UnitTest
         for (int k = 0; k < 24; ++k) { b5.clear(); p5.processBlock (b5, midi); }
         expect (std::abs (p5.modOut (0) - 0.8f) < 0.05f,
                 "tap follows the signal: " + String (p5.modOut (0)));
+
+        beginTest ("spec table: port types match port counts");
+        for (const auto& s : PatcherProcessor::specs())
+        {
+            expectEquals ((int) String (s.inTypes).length(), s.ins, String (s.name) + " inTypes");
+            expectEquals ((int) String (s.outTypes).length(), s.outs, String (s.name) + " outTypes");
+            for (const char* t = s.inTypes;  *t != 0; ++t)
+                expect (*t == 's' || *t == 'n' || *t == 'e', String (s.name) + " inlet type");
+            for (const char* t = s.outTypes; *t != 0; ++t)
+                expect (*t == 's' || *t == 'n' || *t == 'e', String (s.name) + " outlet type");
+            expect (PatcherProcessor::specFor (s.name) == &s, String (s.name) + " specFor");
+        }
+        expect (PatcherProcessor::specFor ("nonsense~") == nullptr, "specFor rejects junk");
     }
 };
 
