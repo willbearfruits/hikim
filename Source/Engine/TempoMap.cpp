@@ -146,4 +146,41 @@ String TempoMap::formatTimecode (juce::int64 samples) const
          + String (sec).paddedLeft ('0', 2) + "." + String (ms).paddedLeft ('0', 3);
 }
 
+// ---- tap tempo ---------------------------------------------------------------
+
+double TapTempo::tap (double nowMs)
+{
+    if (! times.empty() && nowMs - times.back() > 2500.0)
+        times.clear();
+    times.push_back (nowMs);
+    if (times.size() > 9)
+        times.erase (times.begin());                    // keep the last 8 intervals
+    if (times.size() < 2)
+        return 0.0;
+    const double avg = (times.back() - times.front()) / (double) (times.size() - 1);
+    return avg > 1.0e-3 ? juce::jlimit (10.0, 999.0, 60000.0 / avg) : 0.0;
+}
+
+void applyTapTempo (ValueTree tm, juce::UndoManager* undo, double beat, double bpm)
+{
+    bpm = juce::jlimit (10.0, 999.0, bpm);
+    ValueTree best;
+    double bestBeat = -1.0;
+    for (auto c : tm)
+        if (c.hasType (id::TEMPO))
+        {
+            const double b = c[id::beat];
+            if (b <= beat + 1.0e-9 && b > bestBeat) { bestBeat = b; best = c; }
+        }
+    if (best.isValid())
+        best.setProperty (id::bpm, bpm, undo);
+    else
+    {
+        ValueTree ev (id::TEMPO);
+        ev.setProperty (id::beat, 0.0, nullptr);
+        ev.setProperty (id::bpm, bpm, nullptr);
+        tm.appendChild (ev, undo);
+    }
+}
+
 } // namespace dg

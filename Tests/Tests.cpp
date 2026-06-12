@@ -1068,6 +1068,65 @@ struct ChaosAutomationTests : juce::UnitTest
     }
 };
 
+// =========================================================================== tap tempo
+
+struct TapTempoTests : juce::UnitTest
+{
+    TapTempoTests() : UnitTest ("TapTempo") {}
+    void runTest() override
+    {
+        beginTest ("two taps make a tempo");
+        TapTempo tt;
+        expectEquals (tt.tap (0.0), 0.0);                       // first tap: no estimate yet
+        expectWithinAbsoluteError (tt.tap (500.0), 120.0, 1.0e-9);
+
+        beginTest ("the phrase is averaged");
+        expectWithinAbsoluteError (tt.tap (980.0), 60000.0 / 490.0, 1.0e-9);
+        expectWithinAbsoluteError (tt.tap (1500.0), 120.0, 1.0e-9);
+
+        beginTest ("a long gap starts a new phrase");
+        expectEquals (tt.tap (10000.0), 0.0);                   // > 2.5 s later: reset
+        expectWithinAbsoluteError (tt.tap (10400.0), 150.0, 1.0e-9);
+
+        beginTest ("frantic tapping clamps sane");
+        TapTempo fast;
+        fast.tap (0.0);
+        expectWithinAbsoluteError (fast.tap (10.0), 999.0, 1.0e-9);
+
+        beginTest ("applyTapTempo updates the governing event");
+        SessionModel s;
+        s.undo.beginNewTransaction ("tap tempo");
+        applyTapTempo (s.tempoMap(), &s.undo, 0.0, 140.0);
+        auto ev0 = s.tempoMap().getChildWithName (id::TEMPO);
+        expectWithinAbsoluteError ((double) ev0[id::bpm], 140.0, 1.0e-12);
+
+        ValueTree late (id::TEMPO);
+        late.setProperty (id::beat, 8.0, nullptr);
+        late.setProperty (id::bpm, 60.0, nullptr);
+        s.tempoMap().appendChild (late, nullptr);
+        applyTapTempo (s.tempoMap(), &s.undo, 10.0, 90.0);      // playhead past beat 8
+        expectWithinAbsoluteError ((double) late[id::bpm], 90.0, 1.0e-12);
+        expectWithinAbsoluteError ((double) ev0[id::bpm], 140.0, 1.0e-12);   // beat-0 untouched
+
+        beginTest ("applyTapTempo seeds an implicit map");
+        ValueTree bare (id::TEMPOMAP);
+        applyTapTempo (bare, nullptr, 4.0, 100.0);
+        auto seeded = bare.getChildWithName (id::TEMPO);
+        expect (seeded.isValid());
+        expectWithinAbsoluteError ((double) seeded[id::beat], 0.0, 1.0e-12);
+        expectWithinAbsoluteError ((double) seeded[id::bpm], 100.0, 1.0e-12);
+
+        beginTest ("tap writes are undoable");
+        SessionModel s2;
+        s2.undo.beginNewTransaction ("tap tempo");
+        applyTapTempo (s2.tempoMap(), &s2.undo, 0.0, 180.0);
+        auto ev2 = s2.tempoMap().getChildWithName (id::TEMPO);
+        expectWithinAbsoluteError ((double) ev2[id::bpm], 180.0, 1.0e-12);
+        s2.undo.undo();
+        expectWithinAbsoluteError ((double) ev2[id::bpm], 120.0, 1.0e-12);
+    }
+};
+
 // ===========================================================================
 
 static TempoMapTests tempoMapTests;
@@ -1085,6 +1144,7 @@ static LoopedRenderTests loopedRenderTests;
 static MidiLoopExpandTests midiLoopExpandTests;
 static CrossfadeHandleTests crossfadeHandleTests;
 static ChaosAutomationTests chaosAutomationTests;
+static TapTempoTests tapTempoTests;
 
 int main()
 {
