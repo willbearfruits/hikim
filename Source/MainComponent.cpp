@@ -191,7 +191,10 @@ void MainComponent::HelpOverlay::paint (juce::Graphics& g)
         "T  tap tempo      Return  back to start      Shift+L  loop on-off\n"
         "\n"
         "EDITING\n"
-        "Tools 1/2/3: arrow = move, razor = split, X = delete\n"
+        "Tools 1/2/3/4: arrow = move, razor = split, X = delete,\n"
+        "   pencil = drag out a MIDI clip on an Inst track\n"
+        "Drag empty space: rectangle-select clips (Shift adds)\n"
+        "Alt-drag a clip drops a copy - Ctrl-drag slips content\n"
         "Drag clip edges to trim - corners for fades\n"
         "Arrows  nudge selected clips (Shift = fine)\n"
         "Double-click clips: SAMPLE editor / PIANO ROLL\n"
@@ -577,9 +580,10 @@ bool MainComponent::keyPressed (const juce::KeyPress& k, juce::Component* origin
         }
         return false;
     }
-    if (kc == '1' || kc == '2' || kc == '3')
+    if (kc == '1' || kc == '2' || kc == '3' || kc == '4')
     {
-        ui.tool = kc == '1' ? Tool::select : kc == '2' ? Tool::razor : Tool::erase;
+        ui.tool = kc == '1' ? Tool::select : kc == '2' ? Tool::razor
+                : kc == '3' ? Tool::erase  : Tool::pencil;
         timeline->syncToolbar();
         return true;
     }
