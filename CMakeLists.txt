@@ -80,11 +80,13 @@ target_compile_definitions(dawglitch PRIVATE
     JUCE_PLUGINHOST_VST3=1
     JUCE_PLUGINHOST_LV2=1
     JUCE_PLUGINHOST_AU=1            # only takes effect on macOS
-    JUCE_ALSA=1
-    JUCE_JACK=1
     # JUCE_ASIO=1                   # EXTEND: drop the ASIO SDK in and enable for low-latency Windows ASIO
     JUCE_MODAL_LOOPS_PERMITTED=1
     JUCE_DISPLAY_SPLASH_SCREEN=0)   # GPLv3 build
+
+if(UNIX AND NOT APPLE)
+    target_compile_definitions(dawglitch PRIVATE JUCE_ALSA=1 JUCE_JACK=1)
+endif()
 
 # MSVC: windows.h's min/max macros break std::numeric_limits<>::max() in
 # RubberBand (C2589) - NOMINMAX is required for the vendored single-file build.
