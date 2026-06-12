@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=HIKIM
+Comment=break things beautifully - experimental DAW
+Exec=HIKIM %f
+Icon=io.github.willbearfruits.hikim
+Type=Application
+Categories=AudioVideo;Audio;Music;
+MimeType=application/x-hikim-project;
+StartupWMClass=HIKIM
