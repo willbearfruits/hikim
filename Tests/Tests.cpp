@@ -412,6 +412,20 @@ struct PatcherTests : juce::UnitTest
             if (n[id::type].toString() == "osc~") ++oscCount;
         expectEquals (oscCount, 1);
 
+        beginTest ("number box feeds the signal graph live");
+        PatcherProcessor p6;
+        p6.setPlayConfigDetails (2, 2, 48000.0, 256);
+        auto numN = p6.addNode ("number 0.25", 0, 0);
+        auto tapN = p6.addNode ("modout", 0, 0);
+        p6.addCable (numN[id::uid].toString(), 0, tapN[id::uid].toString(), 0);
+        p6.prepareToPlay (48000.0, 256);
+        juce::AudioBuffer<float> b6 (2, 256);
+        for (int k = 0; k < 24; ++k) { b6.clear(); p6.processBlock (b6, midi); }
+        expect (std::abs (p6.modOut (0) - 0.25f) < 0.02f, "arg value flows");
+        p6.numberValueFor (numN[id::uid].toString())->store (0.9f);    // an editor drag
+        for (int k = 0; k < 24; ++k) { b6.clear(); p6.processBlock (b6, midi); }
+        expect (std::abs (p6.modOut (0) - 0.9f) < 0.02f, "live value follows");
+
         beginTest ("modout taps the signal as a mod source");
         PatcherProcessor p5;
         p5.setPlayConfigDetails (2, 2, 48000.0, 256);

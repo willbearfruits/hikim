@@ -33,6 +33,7 @@ const std::vector<PatcherProcessor::Spec>& PatcherProcessor::specs()
         { "oscin", oOscIn, 0, 1, "9000 /ruin", "OSC receive (port, /addr)" },
         { "oscout", oOscOut, 1, 0, "127.0.0.1 57120 /ruin/out", "OSC send (host, port, /addr)" },
         { "modout", oModOut, 1, 0, "", "signal -> mod source in the PATCH bay" },
+        { "number", oNumber, 1, 1, "0", "value box: drag it (Ctrl-drag moves) - the modulation currency" },
     };
     return s;
 }
@@ -221,6 +222,9 @@ void PatcherProcessor::compile()
             case oModOut:
                 if (modOutSeen < kMaxModOuts)
                     o.modIdx = modOutSeen++;
+                break;
+            case oNumber:
+                o.ext = numberValueFor (uid, o.a);   // shared with the editor face
                 break;
             default: break;
         }
@@ -473,6 +477,15 @@ void PatcherProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
                     const float drive = juce::jmax (0.1f, o.a == 0.0f ? 1.0f : o.a);
                     for (int i = 0; i < n; ++i)
                         out0[i] = std::tanh ((i0 ? i0[i] : 0.0f) * drive);
+                }
+                break;
+
+            case oNumber:       // value box: inlet sets it, outlet emits it
+                if (out0)
+                {
+                    float v = o.ext->load();
+                    if (i0 != nullptr) { v = i0[n - 1]; o.ext->store (v); }
+                    juce::FloatVectorOperations::fill (out0, v, n);
                 }
                 break;
 

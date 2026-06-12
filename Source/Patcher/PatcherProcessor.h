@@ -22,7 +22,7 @@ public:
     {
         oAdc, oDac, oOsc, oPhasor, oNoise, oLfo, oMul, oAdd, oLores, oHipass,
         oDelay, oTanh, oSah, oEnv, oMetro, oRandom, oScale, oSig, oParam,
-        oOscIn, oOscOut, oModOut, oUnknown
+        oOscIn, oOscOut, oModOut, oNumber, oUnknown
     };
     struct Spec { const char* name; Obj type; int ins, outs; const char* defaults; const char* desc; };
     static const std::vector<Spec>& specs();
@@ -56,6 +56,14 @@ public:
     void addCable (const String& srcUid, int srcPort, const String& dstUid, int dstPort);
 
     juce::AudioParameterFloat* hostParams[8] {};
+
+    // ---- number boxes: live value per node uid (editor writes, DSP reads) ----
+    std::shared_ptr<std::atomic<float>> numberValueFor (const String& nodeUid, float initial = 0.0f)
+    {
+        auto& slot = numberVals[nodeUid];
+        if (slot == nullptr) slot = std::make_shared<std::atomic<float>> (initial);
+        return slot;
+    }
 
     // ---- modout taps: this patcher as a mod source in the PATCH bay ----
     static constexpr int kMaxModOuts = 8;
@@ -104,6 +112,7 @@ private:
 
     std::array<std::atomic<float>, kMaxModOuts> modOutVals {};
     std::atomic<int> numModOuts { 0 };
+    std::map<String, std::shared_ptr<std::atomic<float>>> numberVals;   // message thread map
 
     double sampleRate = 48000.0;
     int blockSize = 512;
