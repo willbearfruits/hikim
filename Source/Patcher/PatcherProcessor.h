@@ -168,7 +168,13 @@ private:
     void rebuildOsc (Program&);
     void timerCallback() override;                   // oscout sends
     void handleAsyncUpdate() override { compile(); }
-    void valueTreePropertyChanged (ValueTree&, const Identifier&) override { triggerAsyncUpdate(); }
+    void valueTreePropertyChanged (ValueTree&, const Identifier& prop) override
+    {
+        // node x/y is cosmetic layout - dragging a box must NOT recompile the
+        // DSP (a recompile rebuilds every object with fresh state, which clicks)
+        if (prop == id::x || prop == id::y) return;
+        triggerAsyncUpdate();
+    }
     void valueTreeChildAdded (ValueTree&, ValueTree&) override   { triggerAsyncUpdate(); }
     void valueTreeChildRemoved (ValueTree&, ValueTree&, int) override { triggerAsyncUpdate(); }
     void valueTreeChildOrderChanged (ValueTree&, int, int) override {}
