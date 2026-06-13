@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 #include "UI/Updater.h"
+#include "Patcher/PatcherProcessor.h"      // session-graph createEditor() needs the full type
 
 namespace dg
 {
@@ -34,16 +35,12 @@ MainComponent::MainComponent()
 
     sessionGrid = std::make_unique<SessionGrid> (*engine, session, ui);
     addChildComponent (*sessionGrid);          // Tab / V / transport button cycles views
-    routingView = std::make_unique<RoutingView> (*engine, session, ui);
-    addChildComponent (*routingView);
-    routingView->showFxMenu = [this] (ValueTree track, juce::Component* target)
-    {
-        timeline->showTrackFxMenu (track, target);
-    };
-    routingView->showInstrumentMenu = [this] (ValueTree track, juce::Component* target)
-    {
-        timeline->showInstrumentMenu (track, target);
-    };
+
+    // PATCHER is now the session-scope node graph itself - a WIRES editor at the
+    // top altitude. Every node object (osc~, chan~, strip, master~, sample~ ...)
+    // is usable here and makes sound; this is the PATCHER + WIRES merge.
+    patcherView.reset (engine->getSessionGraph()->createEditor());
+    addChildComponent (*patcherView);
     transportBar->onToggleView = [this] { toggleView(); };
     transportBar->onSetView = [this] (int v) { setView (v); };
     transportBar->setViewLabel ("SESSION");
@@ -183,10 +180,10 @@ void MainComponent::resized()
     const auto center = dock->layoutAndGetCenter();
     timeline->setBounds (center);
     sessionGrid->setBounds (center);
-    routingView->setBounds (center);
+    patcherView->setBounds (center);
     timeline->setVisible (viewMode == 0);
     sessionGrid->setVisible (viewMode == 1);
-    routingView->setVisible (viewMode == 2);
+    patcherView->setVisible (viewMode == 2);
     dock->toFront (false);                  // zones overlay the views; center stays click-through
     helpOverlay.setBounds (getLocalBounds());
     helpOverlay.toFront (false);
