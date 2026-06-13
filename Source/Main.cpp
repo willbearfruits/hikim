@@ -1,6 +1,10 @@
 #include "MainComponent.h"
 #include "UI/Look.h"
 
+#if DG_USE_MIMALLOC
+ #include <mimalloc-new-delete.h>   // route global new/delete through mimalloc (one TU only)
+#endif
+
 namespace dg
 {
 

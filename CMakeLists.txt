@@ -126,6 +126,29 @@ else()
     endif()
 endif()
 
+# ---- mimalloc: a faster allocator for the message/disk threads. The RT audio
+# thread pre-allocates and never mallocs, so this is purely a non-realtime
+# throughput win (edit responsiveness, snapshot builds, load times) and is
+# bit-neutral. We override only C++ new/delete (via mimalloc-new-delete.h in
+# Main.cpp), not the C malloc redirect, which keeps integration trivial and
+# identical on Windows/Linux/macOS. Opt out with -DHIKIM_USE_MIMALLOC=OFF.
+option(HIKIM_USE_MIMALLOC "Use mimalloc for the non-RT allocator" ON)
+if(HIKIM_USE_MIMALLOC)
+    include(FetchContent)
+    FetchContent_Declare(mimalloc
+        GIT_REPOSITORY https://github.com/microsoft/mimalloc.git
+        GIT_TAG v2.1.7
+        GIT_SHALLOW TRUE)
+    set(MI_OVERRIDE OFF CACHE BOOL "" FORCE)
+    set(MI_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+    set(MI_BUILD_OBJECT OFF CACHE BOOL "" FORCE)
+    set(MI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(mimalloc)
+    target_link_libraries(dawglitch PRIVATE mimalloc-static)
+    target_include_directories(dawglitch PRIVATE "${mimalloc_SOURCE_DIR}/include")
+    target_compile_definitions(dawglitch PRIVATE DG_USE_MIMALLOC=1)
+endif()
+
 if(APPLE OR WIN32)
     target_compile_definitions(dawglitch PRIVATE DG_HAVE_VIDEO=1)
     target_link_libraries(dawglitch PRIVATE juce::juce_video)
