@@ -5,6 +5,13 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# Static CRT on MSVC so the installed build is plug-and-play (no VC++ redist
+# needed - HIKIM.exe + ffmpeg.exe is the whole runtime). Must be set before any
+# target (JUCE/RubberBand/mimalloc inherit it).
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 # ---- Locate JUCE -------------------------------------------------------------
 # Resolution order:
 #   1. -DJUCE_SOURCE_DIR=/path/to/JUCE on the cmake command line
@@ -31,6 +38,7 @@ juce_add_gui_app(dawglitch
     VERSION ${PROJECT_VERSION}
     COMPANY_NAME "characterglitch"
     BUNDLE_ID com.characterglitch.dawglitch
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/packaging/io.github.willbearfruits.hikim.png"
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "HIKIM records audio."
     DOCUMENT_EXTENSIONS dgproj
