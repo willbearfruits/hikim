@@ -110,13 +110,18 @@ just modules with outputs. ([The Unified Modulation System](https://www.bitwig.c
   picker (target is typed for now).
 - **M4 — mixer floats.** ✅ DONE (`35fa0e8`). `MixerView` → `FloatingWindow` (Options >
   Mixer window); bottom band is now DEVICES / PIANO ROLL / SAMPLE.
-- **M5 — dive + breadcrumb.** TODO. Double-click a channel/device node → its sub-patch on
-  the same canvas; breadcrumb climbs out. WIRES device editor becomes a dive.
-- **M6 — I/O audit + polish.** TODO. Typed ports correct across audio/number/event/notes;
-  LOD; palette grouping; the param-extrude affordance on every knob.
+- **M5 — dive + breadcrumb.** ✅ DONE (`4ae23cf`). PATCHER is a `NodeView` wrapper:
+  breadcrumb over a swappable node editor; EDIT on a WIRES device dives into its patch
+  (SESSION ▸ device), click SESSION to climb. Non-node devices still window.
+- **M6 — objects + pset picker (param-extrude deferred).** ✅ MOSTLY DONE. Object set
+  expanded (`5f6ea62`): `comb~ crush~ fold~ pan~` + math `- / clip wrap slew` + number
+  `+ *`. Pset target picker (`dd10191`): right-click a pset → a menu of session params.
+  **Still deferred:** alt-drag-extrude on app-wide knobs (the one-gesture "modulate this
+  knob"); `notes`/`routing` object families (notein/arp, mux/matrix~); per-altitude LOD
+  polish.
 
-M1/M2 (the heavy merge) + M4 shipped. **M3 is next** and is itself multi-round (new
-objects, param-extrude UI, migration). M5/M6 follow.
+The whole arc M1–M6 has shipped its core. Remaining polish: alt-drag-extrude, the
+notes/routing object families, and view-state preservation across dive/climb.
 
 ## Risks / invariants to hold
 
