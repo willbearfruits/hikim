@@ -32,11 +32,14 @@ namespace dg::tables
         return t;
     }();
 
-    // phase in [0,1) (caller already wrapped) -> interpolated sine
-    inline float sineAt (double phase01) noexcept
+    // interpolated sine for any phase; wraps internally so callers that only
+    // partially reduce their phase (e.g. lfo~ at a very high rate) can't read
+    // past the table - std::sin was periodic, this must be too
+    inline float sineAt (double phase) noexcept
     {
-        const double x = phase01 * (double) kSineSize;
-        const int i = (int) x;                                // phase01 in [0,1) => i in [0, kSineSize)
+        phase -= std::floor (phase);                          // -> [0,1)
+        const double x = phase * (double) kSineSize;
+        const int i = (int) x;                                // now i in [0, kSineSize)
         const float f = (float) (x - (double) i);
         return sine[(size_t) i] + (sine[(size_t) i + 1] - sine[(size_t) i]) * f;
     }
