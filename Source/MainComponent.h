@@ -40,6 +40,7 @@ public:
 
     // KeyListener (attached to the top-level window)
     bool keyPressed (const juce::KeyPress&, juce::Component*) override;
+    bool keyStateChanged (bool isKeyDown, juce::Component*) override;   // hold-to-temp tool revert
 
     // window-wide drops: audio anywhere, .dgproj opens, video loads the video track
     bool isInterestedInFileDrag (const juce::StringArray&) override;
@@ -85,6 +86,9 @@ private:
     std::unique_ptr<StatusBar> statusBar;   // v2 footer hint bar
     void updateViewHint();                  // footer text per view
     int bottomBandKind = 0;                 // 0 none, 1 track (DEVICES), 2 clip (PIANO ROLL/SAMPLE)
+    int heldToolKey = 0;                    // hold-to-temp: a tool key held > 250ms reverts on release
+    Tool toolBeforeHold = Tool::select;
+    double toolHoldStartMs = 0.0;
     std::unique_ptr<MixerView> mixer;
     std::unique_ptr<PianoRoll> pianoRoll;
     std::unique_ptr<FileBin> fileBin;

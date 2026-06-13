@@ -224,6 +224,7 @@ void MainComponent::HelpOverlay::paint (juce::Graphics& g)
         "EDITING\n"
         "Tools 1/2/3/4: arrow = move, razor = split, X = delete,\n"
         "   pencil = drag out a MIDI clip on an Inst track\n"
+        "   (hold a tool key for momentary use - release reverts)\n"
         "Drag empty space: rectangle-select clips (Shift adds)\n"
         "Alt-drag a clip drops a copy - Ctrl-drag slips content\n"
         "Drag clip edges to trim - corners for fades\n"
@@ -625,8 +626,15 @@ bool MainComponent::keyPressed (const juce::KeyPress& k, juce::Component* origin
     }
     if (kc == '1' || kc == '2' || kc == '3' || kc == '4')
     {
-        ui.tool = kc == '1' ? Tool::select : kc == '2' ? Tool::razor
-                : kc == '3' ? Tool::erase  : Tool::pencil;
+        const Tool t = kc == '1' ? Tool::select : kc == '2' ? Tool::razor
+                     : kc == '3' ? Tool::erase  : Tool::pencil;
+        if (heldToolKey != kc)              // fresh press (auto-repeat keeps the same key)
+        {
+            toolBeforeHold = ui.tool;
+            toolHoldStartMs = juce::Time::getMillisecondCounterHiRes();
+            heldToolKey = kc;
+        }
+        ui.tool = t;
         timeline->syncToolbar();
         return true;
     }
@@ -714,6 +722,23 @@ bool MainComponent::keyPressed (const juce::KeyPress& k, juce::Component* origin
         ui.selectedClips.clear();
         timeline->repaint();
         return true;
+    }
+    return false;
+}
+
+bool MainComponent::keyStateChanged (bool, juce::Component*)
+{
+    // hold-to-temp: a tool key held past a tap (250 ms) reverts to the prior
+    // tool on release; a quick tap latches. Self-contained - no view changes.
+    if (heldToolKey != 0 && ! juce::KeyPress::isKeyCurrentlyDown (heldToolKey))
+    {
+        const double held = juce::Time::getMillisecondCounterHiRes() - toolHoldStartMs;
+        if (held > 250.0 && ui.tool != toolBeforeHold)
+        {
+            ui.tool = toolBeforeHold;
+            timeline->syncToolbar();
+        }
+        heldToolKey = 0;
     }
     return false;
 }
