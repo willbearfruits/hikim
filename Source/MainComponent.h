@@ -95,9 +95,10 @@ private:
     std::unique_ptr<FxExplorer> fxExplorer;
     std::unique_ptr<ChainPanel> chainPanel;
     std::unique_ptr<SampleEditor> sampleEditor;
+    std::unique_ptr<VideoView> videoView;   // dockable (RIGHT zone), not a floating window
     void selectTab (const String& name);
 
-    std::unique_ptr<FloatingWindow> settingsWin, pluginWin, videoWin, mixerWin;
+    std::unique_ptr<FloatingWindow> settingsWin, pluginWin;
     std::map<String, std::unique_ptr<FloatingWindow>> editorWindows;   // by insert uid
 
     juce::TooltipWindow tooltips { nullptr, 600 };

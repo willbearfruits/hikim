@@ -56,6 +56,7 @@ MainComponent::MainComponent()
     fxExplorer = std::make_unique<FxExplorer> (*pluginHost);
     chainPanel = std::make_unique<ChainPanel> (*engine, session, ui);
     sampleEditor = std::make_unique<SampleEditor> (*engine, session, ui);
+    videoView = std::make_unique<VideoView> (*engine, session);
 
     // modular zones: find things LEFT, the selected thing RIGHT, the playing
     // surface BOTTOM - every panel can be moved (right-click its chip),
@@ -63,23 +64,25 @@ MainComponent::MainComponent()
     dock = std::make_unique<Dock> (appProps.getUserSettings());
     dock->registerPanel ("FILES", fileBin.get(), Dock::zLeft);
     dock->registerPanel ("FX", fxExplorer.get(), Dock::zLeft);
-    // v2: the device chain + clip editors are the horizontal BOTTOM band - the
-    // detail of whatever you selected. DEVICES leads (the old vertical CHAIN
-    // right-panel, now wide and short). PATCH (mod bay) stays on the right.
+    // the device chain + clip editors are the horizontal BOTTOM band - the
+    // detail of whatever you selected. MIXER and VIDEO are dockable too (MIXER
+    // joins the bottom band, VIDEO sits RIGHT); both stay movable/collapsible.
     dock->registerPanel ("DEVICES", chainPanel.get(), Dock::zBottom);
     dock->registerPanel ("PIANO ROLL", pianoRoll.get(), Dock::zBottom);
     dock->registerPanel ("SAMPLE", sampleEditor.get(), Dock::zBottom);
-    // MIXER floats (Options > Mixer window); the PATCH mod bay is retired -
-    // modulation is now nodes in PATCHER (lfo~/chaos/drunk/env~ -> pset/strip)
+    dock->registerPanel ("MIXER", mixer.get(), Dock::zBottom);
+    dock->registerPanel ("VIDEO", videoView.get(), Dock::zRight);
 
-    // one-time migration to the v2 band layout: drop the stored zone overrides
-    // for the relocated panels so the new defaults win (returning users included)
-    if (props->getIntValue ("dock.layoutVersion", 1) < 3)
+    // one-time migration: MIXER/VIDEO become dockable (v4) - drop their stored
+    // zone overrides + the bottom/right zone state so the new defaults win
+    if (props->getIntValue ("dock.layoutVersion", 1) < 4)
     {
-        for (auto* k : { "dock.zone.SAMPLE", "dock.zone.MIXER", "dock.zone.PIANO ROLL",
+        for (auto* k : { "dock.zone.SAMPLE", "dock.zone.MIXER", "dock.zone.VIDEO",
+                         "dock.zone.PIANO ROLL", "dock.active.1",
                          "dock.open.2", "dock.active.2", "dock.size.2" })
             props->removeValue (k);
-        props->setValue ("dock.layoutVersion", 3);
+        props->setValue ("dock.open.1", 0);     // VIDEO docks RIGHT but starts collapsed
+        props->setValue ("dock.layoutVersion", 4);
     }
     dock->restore();
     dock->onLayoutChanged = [this] { resized(); };
@@ -168,8 +171,6 @@ MainComponent::~MainComponent()
     editorWindows.clear();
     settingsWin.reset();
     pluginWin.reset();
-    videoWin.reset();
-    mixerWin.reset();                       // non-owned mixer ref dies before the mixer
 }
 
 void MainComponent::resized()
@@ -323,8 +324,8 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const String&)
     {
         m.addItem (mAudioSettings, "Audio device settings...");
         m.addItem (mPluginManager, "Plugin manager...");
-        m.addItem (mMixerWindow, "Mixer window...");
-        m.addItem (mVideoWindow, "Video window...");
+        m.addItem (mMixerWindow, "Show mixer");
+        m.addItem (mVideoWindow, "Show video");
         m.addSeparator();
         m.addItem (mThemeLight, "Light theme", true, Look::get().isLight());
         juce::PopupMenu scale;
@@ -428,25 +429,12 @@ void MainComponent::applyScale (double scale)
 
 void MainComponent::showVideoWindow()
 {
-    if (videoWin == nullptr)
-    {
-        videoWin = std::make_unique<FloatingWindow> ("Video", [this] { videoWin.reset(); });
-        videoWin->setContentOwned (new VideoView (*engine, session), true);
-    }
-    videoWin->setVisible (true);
-    videoWin->toFront (true);
+    selectTab ("VIDEO");        // VIDEO is a dockable panel (RIGHT zone) now, not a window
 }
 
 void MainComponent::showMixerWindow()
 {
-    if (mixerWin == nullptr)
-    {
-        mixerWin = std::make_unique<FloatingWindow> ("Mixer", [this] { mixerWin.reset(); });
-        mixer->setSize (900, 320);
-        mixerWin->setContentNonOwned (mixer.get(), true);   // MainComponent keeps owning the mixer
-    }
-    mixerWin->setVisible (true);
-    mixerWin->toFront (true);
+    selectTab ("MIXER");        // MIXER is a dockable panel (BOTTOM band) now, not a window
 }
 
 // ---------------------------------------------------------------- window-wide drops
@@ -611,7 +599,9 @@ bool MainComponent::keyPressed (const juce::KeyPress& k, juce::Component* origin
     const int kc = k.getKeyCode();
     auto is = [kc] (char c) { return kc == c || kc == c + 32; };   // letter, either case
 
-    if (kc == juce::KeyPress::tabKey || is ('V'))
+    // Tab or bare V cycles views - but NOT Ctrl+V (that's paste, handled below)
+    if (kc == juce::KeyPress::tabKey
+        || (is ('V') && ! k.getModifiers().isCommandDown()))
     {
         toggleView();
         return true;

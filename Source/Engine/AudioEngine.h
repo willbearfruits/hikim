@@ -318,6 +318,7 @@ private:
     // rings. Persists under the session tree's GRAPH child.
     std::unique_ptr<PatcherProcessor> sessionGraph;
     juce::AudioBuffer<float> sgBuf;                                         // session-graph scratch
+    std::shared_ptr<InjectRing> sessionOutRing = std::make_shared<InjectRing>();  // session dac~ -> master
     std::map<String, std::shared_ptr<const AudioPlaylist>> lastPlaylists;
     std::map<String, std::shared_ptr<const MidiPlaylist>> lastMidiPlaylists;
     std::vector<std::shared_ptr<const AudioPlaylist>> playlistGraveyard;

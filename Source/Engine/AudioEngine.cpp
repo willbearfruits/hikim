@@ -1020,6 +1020,7 @@ void AudioEngine::rebuildMods()
     if (sessionGraph != nullptr)                 // session-scope master~ injects too
         for (auto& r : sessionGraph->getInjectRings())
             injectList->push_back (r);
+    injectList->push_back (sessionOutRing);      // ...and the session graph's dac~ main out
     if (auto* ms = getStrip ("master"))
         ms->setInjects (std::move (injectList));
 
@@ -1841,6 +1842,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* input, i
             juce::AudioBuffer<float> sgSub (sgPtrs, 2, len);
             sgSub.clear();
             sessionGraph->processBlock (sgSub, midiSeg);
+            // the session graph's dac~ output is the "main out" at this altitude:
+            // route it to master so osc~ -> dac~ makes sound (silence if no dac~)
+            sessionOutRing->write (sgSub.getReadPointer (0), sgSub.getReadPointer (1), len);
         }
 
         graph.processBlock (sub, midiSeg);
