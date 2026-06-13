@@ -98,6 +98,7 @@ private:
 
     bool rebuildPending = false, layoutPending = false;
     int lastViewY = -1, lastViewX = -1;
+    double lastPlayheadSec = -1.0;          // gate the 30Hz canvas repaint on actual movement
     std::vector<clipops::ClipboardItem> clipboard;
     std::unique_ptr<juce::Component> toolbar;
 

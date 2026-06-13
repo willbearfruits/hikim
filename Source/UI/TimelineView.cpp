@@ -2239,8 +2239,16 @@ void TimelineView::timerCallback()
         if (px > vp.getViewPositionX() + vp.getWidth() - 30)
             vp.setViewPosition (juce::jmax (0, px - 60), vp.getViewPositionY());
     }
-    canvas->repaint();
-    ruler->repaint();
+
+    // only repaint when the playhead actually moved (playing, recording, or a
+    // seek while stopped) - not unconditionally 30x/sec at idle
+    const double pos = engine.getPositionSeconds();
+    if (engine.isPlaying() || pos != lastPlayheadSec)
+    {
+        lastPlayheadSec = pos;
+        canvas->repaint();
+        ruler->repaint();
+    }
 }
 
 void TimelineView::valueTreePropertyChanged (ValueTree& tree, const Identifier& prop)
