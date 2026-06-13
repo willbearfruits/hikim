@@ -748,6 +748,158 @@ struct PatcherTests : juce::UnitTest
             expect (std::abs (writes[0].second->load() - 0.7f) < 0.01f,
                     "live value flows: " + String (writes[0].second->load()));
         }
+
+        // ---- curated DSP/number objects (m6) ----
+        // helper: wire "<src> -> <obj> -> dac~" and return the dac~'s out0 over one block
+        auto runChain = [&midi] (const String& srcText, const String& objText,
+                                 float* out, int outN)
+        {
+            PatcherProcessor pp;
+            pp.setPlayConfigDetails (2, 2, 48000.0, 256);
+            auto srcN = pp.addNode (srcText, 0, 0);
+            auto objN = pp.addNode (objText, 0, 0);
+            ValueTree dacN;
+            for (const auto& nd : pp.patch)
+                if (nd[id::type].toString() == "dac~") dacN = nd;
+            pp.addCable (srcN[id::uid].toString(), 0, objN[id::uid].toString(), 0);
+            pp.addCable (objN[id::uid].toString(), 0, dacN[id::uid].toString(), 0);
+            pp.prepareToPlay (48000.0, 256);
+            juce::AudioBuffer<float> bb (2, 256);
+            bb.clear();
+            pp.processBlock (bb, midi);
+            for (int i = 0; i < outN; ++i) out[i] = bb.getSample (0, i);
+        };
+
+        beginTest ("clip clamps to its (lo, hi) range");
+        {
+            std::vector<float> o (256, 0.0f);
+            runChain ("sig 5", "clip 0 1", o.data(), 256);
+            expectWithinAbsoluteError (o[100], 1.0f, 1.0e-5f);     // 5 -> hi
+            runChain ("sig -2", "clip 0 1", o.data(), 256);
+            expectWithinAbsoluteError (o[100], 0.0f, 1.0e-5f);     // -2 -> lo
+            runChain ("sig 0.4", "clip 0 1", o.data(), 256);
+            expectWithinAbsoluteError (o[100], 0.4f, 1.0e-5f);     // inside -> unchanged
+        }
+
+        beginTest ("wrap folds values into (lo, hi)");
+        {
+            std::vector<float> o (256, 0.0f);
+            runChain ("sig 1.25", "wrap 0 1", o.data(), 256);
+            expectWithinAbsoluteError (o[100], 0.25f, 1.0e-5f);    // 1.25 -> 0.25
+            runChain ("sig -0.25", "wrap 0 1", o.data(), 256);
+            expectWithinAbsoluteError (o[100], 0.75f, 1.0e-5f);    // wraps from below
+        }
+
+        beginTest ("slew limits the per-sample step");
+        {
+            // step 0.001/sample: a jump to 1.0 cannot be reached within 256 samples
+            std::vector<float> o (256, 0.0f);
+            runChain ("sig 1", "slew 0.001", o.data(), 256);
+            expect (o[255] <= 0.256f + 1.0e-4f, "rises no faster than the step: " + String (o[255]));
+            expect (o[255] > 0.0f, "but does move toward the target");
+            for (int i = 1; i < 256; ++i)
+                expect (o[i] - o[i - 1] <= 0.001f + 1.0e-5f, "each step is bounded");
+        }
+
+        beginTest ("- subtracts and / guards divide-by-zero");
+        {
+            // a - b : sig 0.7 minus arg 0.2 (no second inlet) = 0.5
+            std::vector<float> o (256, 0.0f);
+            runChain ("sig 0.7", "- 0.2", o.data(), 256);
+            expectWithinAbsoluteError (o[100], 0.5f, 1.0e-5f);
+            // a / b : sig 1 divided by arg 4 = 0.25
+            runChain ("sig 1", "/ 4", o.data(), 256);
+            expectWithinAbsoluteError (o[100], 0.25f, 1.0e-5f);
+            // divide-by-zero arg: guard returns the numerator (finite)
+            runChain ("sig 3", "/ 0", o.data(), 256);
+            expect (std::isfinite (o[100]), "/0 stays finite");
+            expectWithinAbsoluteError (o[100], 3.0f, 1.0e-5f);     // d<1e-9 -> /1
+        }
+
+        beginTest ("pan~ is equal-power: centre splits, hard left favours L");
+        {
+            PatcherProcessor pp;
+            pp.setPlayConfigDetails (2, 2, 48000.0, 256);
+            auto inN = pp.addNode ("sig 1", 0, 0);
+            auto panN = pp.addNode ("pan~ 0", 0, 0);
+            ValueTree dacN;
+            for (const auto& nd : pp.patch)
+                if (nd[id::type].toString() == "dac~") dacN = nd;
+            pp.addCable (inN[id::uid].toString(), 0, panN[id::uid].toString(), 0);
+            pp.addCable (panN[id::uid].toString(), 0, dacN[id::uid].toString(), 0);
+            pp.addCable (panN[id::uid].toString(), 1, dacN[id::uid].toString(), 1);
+            pp.prepareToPlay (48000.0, 256);
+            juce::AudioBuffer<float> bb (2, 256);
+            bb.clear();
+            pp.processBlock (bb, midi);
+            expectWithinAbsoluteError (bb.getSample (0, 100), 0.70710677f, 1.0e-4f);   // cos(pi/4)
+            expectWithinAbsoluteError (bb.getSample (1, 100), 0.70710677f, 1.0e-4f);   // sin(pi/4)
+            // pos -1: all left, no right
+            PatcherProcessor pl;
+            pl.setPlayConfigDetails (2, 2, 48000.0, 256);
+            auto inL = pl.addNode ("sig 1", 0, 0);
+            auto panL = pl.addNode ("pan~ -1", 0, 0);
+            ValueTree dacL;
+            for (const auto& nd : pl.patch)
+                if (nd[id::type].toString() == "dac~") dacL = nd;
+            pl.addCable (inL[id::uid].toString(), 0, panL[id::uid].toString(), 0);
+            pl.addCable (panL[id::uid].toString(), 0, dacL[id::uid].toString(), 0);
+            pl.addCable (panL[id::uid].toString(), 1, dacL[id::uid].toString(), 1);
+            pl.prepareToPlay (48000.0, 256);
+            juce::AudioBuffer<float> bl (2, 256);
+            bl.clear();
+            pl.processBlock (bl, midi);
+            expectWithinAbsoluteError (bl.getSample (0, 100), 1.0f, 1.0e-4f);          // hard left
+            expect (std::abs (bl.getSample (1, 100)) < 1.0e-4f, "no right at pos -1");
+        }
+
+        beginTest ("crush~ fold~ comb~ stay finite and bounded over noise");
+        for (const char* objText : { "crush~ 4", "fold~ 3", "comb~ 5 0.7" })
+        {
+            PatcherProcessor pp;
+            pp.setPlayConfigDetails (2, 2, 48000.0, 256);
+            auto srcN = pp.addNode ("noise~", 0, 0);
+            auto objN = pp.addNode (objText, 0, 0);
+            ValueTree dacN;
+            for (const auto& nd : pp.patch)
+                if (nd[id::type].toString() == "dac~") dacN = nd;
+            pp.addCable (srcN[id::uid].toString(), 0, objN[id::uid].toString(), 0);
+            pp.addCable (objN[id::uid].toString(), 0, dacN[id::uid].toString(), 0);
+            pp.prepareToPlay (48000.0, 256);
+            juce::AudioBuffer<float> bb (2, 256);
+            bool good = true;
+            for (int k = 0; k < 200 && good; ++k)
+            {
+                bb.clear();
+                pp.processBlock (bb, midi);
+                for (int i = 0; i < 256 && good; ++i)
+                    good = std::isfinite (bb.getSample (0, i)) && std::abs (bb.getSample (0, i)) < 8.0f;
+            }
+            expect (good, String (objText) + " finite and bounded");
+        }
+
+        beginTest ("crush~ quantises to a small set of levels");
+        {
+            // 1-bit crush of a fast ramp: output only takes a couple of discrete values
+            std::vector<float> o (256, 0.0f);
+            runChain ("phasor~ 200", "crush~ 1", o.data(), 256);
+            std::vector<float> seen;
+            for (int i = 0; i < 256; ++i)
+            {
+                bool known = false;
+                for (float s : seen) if (std::abs (s - o[i]) < 1.0e-6f) { known = true; break; }
+                if (! known) seen.push_back (o[i]);
+            }
+            expect ((int) seen.size() <= 4, "1-bit crush collapses to few levels: "
+                                            + String ((int) seen.size()));
+        }
+
+        beginTest ("fold~ keeps a hot input inside [-1, 1]");
+        {
+            std::vector<float> o (256, 0.0f);
+            runChain ("sig 0.9", "fold~ 5", o.data(), 256);       // 4.5 drive -> folds back in
+            expect (std::abs (o[100]) <= 1.0f + 1.0e-5f, "folded into range: " + String (o[100]));
+        }
     }
 };
 
