@@ -51,20 +51,24 @@ void ChannelStripProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
 
     float* l = buffer.getWritePointer (0);
     float* r = buffer.getNumChannels() > 1 ? buffer.getWritePointer (1) : nullptr;
-    float pkL = 0.0f, pkR = 0.0f;
 
     tapPre->write (l, r, n);                    // chan~ pre-fader point
 
-    for (int i = 0; i < n; ++i)
+    // applyGain is the per-sample smoother while ramping and a vectorised
+    // FloatVectorOperations::multiply once settled - bit-identical to the old
+    // scalar loop, SIMD on the common steady-state path. Peak likewise vectorised.
+    smGainL.applyGain (l, n);
+    const auto rL = juce::FloatVectorOperations::findMinAndMax (l, n);
+    const float pkL = juce::jmax (std::abs (rL.getStart()), std::abs (rL.getEnd()));
+
+    float pkR = pkL;
+    if (r != nullptr)
     {
-        l[i] *= smGainL.getNextValue();
-        pkL = juce::jmax (pkL, std::abs (l[i]));
-        if (r != nullptr)
-        {
-            r[i] *= smGainR.getNextValue();
-            pkR = juce::jmax (pkR, std::abs (r[i]));
-        }
+        smGainR.applyGain (r, n);
+        const auto rR = juce::FloatVectorOperations::findMinAndMax (r, n);
+        pkR = juce::jmax (std::abs (rR.getStart()), std::abs (rR.getEnd()));
     }
+
     peakL.store (juce::jmax (peakL.load() * 0.75f, pkL));
     peakR.store (juce::jmax (peakR.load() * 0.75f, r != nullptr ? pkR : pkL));
 
