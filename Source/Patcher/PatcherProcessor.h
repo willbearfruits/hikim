@@ -119,6 +119,9 @@ public:
         for (const auto& [uid, ring] : injectRings) v.push_back (ring);
         return v;
     }
+    // each master~ node's target arg ("" / "master" / track#/name) + its ring,
+    // so the engine can inject into a specific channel instead of only master
+    std::vector<std::pair<String, std::shared_ptr<InjectRing>>> getInjectTargets() const;
     std::function<void()> onInjectsChanged;
 
     // ---- pset: write any session parameter from the graph. The engine reads
@@ -181,6 +184,7 @@ private:
     std::map<String, std::shared_ptr<std::atomic<float>>> numberVals;   // message thread map
     std::map<String, std::shared_ptr<std::atomic<float>>> paramWriteVals; // pset uid -> live value
     int lastPsetSig = 0;
+    int lastInjectSig = 0;
     std::shared_ptr<std::atomic<float>> paramWriteValueFor (const String& uid)
     {
         auto& slot = paramWriteVals[uid];

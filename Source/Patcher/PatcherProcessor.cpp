@@ -54,7 +54,7 @@ const std::vector<PatcherProcessor::Spec>& PatcherProcessor::specs()
         { "modout", oModOut, 1, 0, "", "signal -> mod source in the PATCH bay", famRouting, "s", "" },
         { "pset", oPset, 1, 0, "1 strip:gain", "write a parameter: <track#/name> <target> (e.g. 2 strip:gain)", famRouting, "n", "" },
         { "strip", oStrip, 3, 3, "1", "drive a channel: gain dB, pan, mute (track#/name)", famRouting, "nnn", "nnn" },
-        { "master~", oMaster, 2, 0, "", "send straight to the master bus", famRouting, "ss", "" },
+        { "master~", oMaster, 2, 0, "", "to master, or a channel: master~ <track#/name>", famRouting, "ss", "" },
     };
     return s;
 }
@@ -64,6 +64,19 @@ const PatcherProcessor::Spec* PatcherProcessor::specFor (const String& name)
     for (const auto& s : specs())
         if (name == s.name) return &s;
     return nullptr;
+}
+
+std::vector<std::pair<String, std::shared_ptr<InjectRing>>> PatcherProcessor::getInjectTargets() const
+{
+    std::vector<std::pair<String, std::shared_ptr<InjectRing>>> v;
+    for (const auto& n : patch)
+        if (n.hasType (kNodeId) && n[id::type].toString() == "master~")
+        {
+            auto it = injectRings.find (n[id::uid].toString());
+            if (it != injectRings.end() && it->second != nullptr)
+                v.push_back ({ n[kArgs].toString(), it->second });
+        }
+    return v;
 }
 
 std::vector<std::pair<String, std::shared_ptr<std::atomic<float>>>> PatcherProcessor::getParamWrites() const
@@ -330,8 +343,18 @@ void PatcherProcessor::compile()
         if (! injectSeen.count (it->first)) { it = injectRings.erase (it); injectsChanged = true; }
         else ++it;
     }
-    if (injectsChanged && onInjectsChanged != nullptr)
-        onInjectsChanged();             // master~ set changed: engine re-gathers
+    juce::ignoreUnused (injectsChanged);
+    // signature over master~ nodes (uid + target arg): fire so the engine
+    // re-routes when a master~ is added/removed OR re-targeted (master~ 2)
+    int injectSig = 0;
+    for (const auto& n : patch)
+        if (n.hasType (kNodeId) && n[id::type].toString() == "master~")
+            injectSig = injectSig * 31 + n[id::uid].toString().hashCode() + n[kArgs].toString().hashCode();
+    if (injectSig != lastInjectSig)
+    {
+        lastInjectSig = injectSig;
+        if (onInjectsChanged != nullptr) onInjectsChanged();
+    }
 
     // pset set/target signature: fire so the engine re-resolves param targets
     int psetSig = 0;

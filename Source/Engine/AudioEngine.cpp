@@ -976,8 +976,30 @@ void AudioEngine::rebuildMods()
     auto next = std::make_shared<ModRTState>();
 
     // WIRES modout taps become live mod sources (ids "wires:<insertUid>:<n>");
-    // master~ rings are gathered for the master strip in the same sweep
-    auto injectList = std::make_shared<ChannelStripProcessor::InjectList>();
+    // master~ rings are routed by their target arg in the same sweep: master~
+    // with no arg -> master, master~ <track#/name> -> that channel's input.
+    std::map<ChannelStripProcessor*, std::shared_ptr<ChannelStripProcessor::InjectList>> stripInjects;
+    auto* masterStrip = getStrip ("master");
+    auto listFor = [&] (ChannelStripProcessor* s) -> ChannelStripProcessor::InjectList&
+    {
+        auto& l = stripInjects[s];
+        if (l == nullptr) l = std::make_shared<ChannelStripProcessor::InjectList>();
+        return *l;
+    };
+    auto routeInjects = [&] (PatcherProcessor* pp)
+    {
+        for (auto& at : pp->getInjectTargets())
+        {
+            ChannelStripProcessor* target = masterStrip;
+            if (! (at.first.isEmpty() || at.first.equalsIgnoreCase ("master")))
+            {
+                auto t = resolveTrackRef (at.first);
+                if (auto* s = t.isValid() ? getStrip (t[id::uid].toString()) : nullptr)
+                    target = s;
+            }
+            if (target != nullptr) listFor (target).push_back (at.second);
+        }
+    };
     for (const auto& t : session.tracks())
         for (const auto& ins : SessionModel::insertsOf (t))
         {
@@ -987,8 +1009,7 @@ void AudioEngine::rebuildMods()
             if (pp == nullptr) continue;
             pp->onModOutsChanged = [this] { scheduleRebuild (rebuild::mods); };
             pp->onInjectsChanged = [this] { scheduleRebuild (rebuild::mods); };
-            for (auto& r : pp->getInjectRings())
-                injectList->push_back (r);
+            routeInjects (pp);                       // device master~ -> master or a channel
             // chan~/strip refs re-resolve here after every rebuild (strips may be new)
             pp->setChanTapProvider ([this] (const String& ref, bool pre)
                 -> std::shared_ptr<ChanTap>
@@ -1017,12 +1038,19 @@ void AudioEngine::rebuildMods()
                                              "wires:" + ins[id::uid].toString() + ":" + String (i),
                                              t[id::name].toString() + " WIRES " + String (i + 1) });
         }
-    if (sessionGraph != nullptr)                 // session-scope master~ injects too
-        for (auto& r : sessionGraph->getInjectRings())
-            injectList->push_back (r);
-    injectList->push_back (sessionOutRing);      // ...and the session graph's dac~ main out
-    if (auto* ms = getStrip ("master"))
-        ms->setInjects (std::move (injectList));
+    if (sessionGraph != nullptr)                 // session-scope master~ (routed by arg)
+        routeInjects (sessionGraph.get());
+    if (masterStrip != nullptr)
+        listFor (masterStrip).push_back (sessionOutRing);   // the session graph's dac~ main out
+
+    // apply each strip's inject set (empty for strips nothing targets)
+    for (const auto& t : session.tracks())
+        if (auto* s = getStrip (t[id::uid].toString()))
+        {
+            auto it = stripInjects.find (s);
+            s->setInjects (it != stripInjects.end() ? it->second
+                                                    : std::make_shared<ChannelStripProcessor::InjectList>());
+        }
 
     for (int i = 0; i < 4; ++i)
     {
