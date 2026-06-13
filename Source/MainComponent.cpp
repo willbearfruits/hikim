@@ -127,10 +127,15 @@ MainComponent::MainComponent()
         refreshTitle();
     };
 
+    statusBar = std::make_unique<StatusBar> (ui);
+    addAndMakeVisible (*statusBar);
+    ui.setHint = [this] (const String& h) { statusBar->setHint (h); };
+
     addChildComponent (helpOverlay);
 
     startTimerHz (20);
     setSize (1500, 900);
+    updateViewHint();
 
     // silent daily update check, well after first paint
     juce::Timer::callAfterDelay (6000, [props] { Updater::checkAsync (props, false); });
@@ -148,6 +153,7 @@ void MainComponent::resized()
 {
     auto b = getLocalBounds();
     transportBar->setBounds (b.removeFromTop (42));
+    statusBar->setBounds (b.removeFromBottom (20));     // footer spans full width, under the dock
     dock->setBounds (b);
     const auto center = dock->layoutAndGetCenter();
     timeline->setBounds (center);
@@ -459,7 +465,18 @@ void MainComponent::setView (int v)
     viewMode = juce::jlimit (0, 2, v);
     static const char* next[] = { "SESSION", "PATCHER", "ARRANGE" };
     transportBar->setViewLabel (next[viewMode]);    // the button names the destination
+    updateViewHint();
     resized();
+}
+
+void MainComponent::updateViewHint()
+{
+    static const char* hints[] = {
+        "ARRANGE  -  drag audio in  -  double-click an Inst lane to draw a clip  -  1/2/3/4 = select/razor/erase/pencil  -  double-click a clip to edit it",
+        "SESSION  -  click a cell to launch a loop  -  hover the transport edge to flip views  -  R records a jam into the arrangement",
+        "PATCHER  -  channels are boxes  -  drag an output port onto a bus  -  drag a mod source onto a channel  -  double-click empty space for a new track",
+    };
+    ui.hint (hints[juce::jlimit (0, 2, viewMode)]);
 }
 
 void MainComponent::doNew()

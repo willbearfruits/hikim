@@ -14,6 +14,7 @@
 #include "UI/SampleEditor.h"
 #include "UI/RoutingView.h"
 #include "UI/Dock.h"
+#include "UI/StatusBar.h"
 
 namespace dg
 {
@@ -81,6 +82,8 @@ private:
     std::unique_ptr<RoutingView> routingView;
     int viewMode = 0;                       // 0 arrange, 1 session, 2 patcher
     std::unique_ptr<Dock> dock;             // modular LEFT/RIGHT/BOTTOM panel zones
+    std::unique_ptr<StatusBar> statusBar;   // v2 footer hint bar
+    void updateViewHint();                  // footer text per view
     std::unique_ptr<MixerView> mixer;
     std::unique_ptr<PianoRoll> pianoRoll;
     std::unique_ptr<FileBin> fileBin;

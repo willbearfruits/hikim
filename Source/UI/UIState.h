@@ -8,6 +8,14 @@ namespace dg
 // Cross-view UI state owned by MainComponent.
 enum class Tool { select, razor, erase, pencil };
 
+inline const char* toolName (Tool t)
+{
+    return t == Tool::select ? "SELECT"
+         : t == Tool::razor  ? "RAZOR"
+         : t == Tool::erase  ? "ERASE"
+         :                     "PENCIL";
+}
+
 struct UIState
 {
     int snapMode = 5;                       // index into kSnapNames
@@ -21,6 +29,12 @@ struct UIState
     std::function<void (ValueTree clip)> openSampleEditor;
     std::function<void (const String& trackUid, const String& insertUid)> openInsertEditor;
     std::function<void()> refreshAll;
+
+    // v2 layout: footer hint bar (panels call on hover) + selection routing
+    std::function<void (const String& hint)> setHint;
+    std::function<void()> onSelectionChanged;       // bottom band follows selection
+    void hint (const String& h) const { if (setHint) setHint (h); }
+    void selectionChanged() const { if (onSelectionChanged) onSelectionChanged(); }
 };
 
 static const juce::StringArray kSnapNames { "SNAP OFF", "BAR", "1/2", "1/4", "1/8", "1/16", "1/32", "FRAME" };
