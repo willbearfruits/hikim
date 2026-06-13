@@ -8,8 +8,11 @@ The current shape:
 
 - **TEETH**: an optional experimental effects rack. With every module off it must
   pass audio bit-identically.
-- **WIRES**: a Max-style patcher that can run as an effect device or as an instrument.
-- **Three working views**: ARRANGE, SESSION and PATCHER/Routing over one shared project tree.
+- **WIRES / NODES**: a Max-style patcher that runs as an effect/instrument device and,
+  at session scope, as the **PATCHER** — a node graph that taps, injects into and
+  modulates any track (`chan~`, `master~`, `sample~`, `grain~`, `lfo~`, `pset`, …).
+- **Three views over one project tree**: ARRANGE, SESSION and PATCHER, in a
+  Bitwig-style horizontal layout whose side/bottom panels can detach to their own windows.
 - **Clean by default**: tracks stay normal unless you add devices or routing.
 
 Project page: <https://willbearfruits.github.io/hikim/>
@@ -18,15 +21,14 @@ Project page: <https://willbearfruits.github.io/hikim/>
 
 ## Downloads
 
-Prebuilt artifacts are available on the
-[`v0.1.0` release](https://github.com/willbearfruits/hikim/releases/tag/v0.1.0)
-and are also tracked in this repository:
+Latest prebuilt artifacts are on the
+[releases page](https://github.com/willbearfruits/hikim/releases/latest):
 
 | Platform | File | Notes |
 | --- | --- | --- |
-| Windows | [`dist/HIKIM-setup.exe`](dist/HIKIM-setup.exe) | Installer build. |
-| Windows | [`dist/HIKIM-windows-portable.zip`](dist/HIKIM-windows-portable.zip) | Portable `HIKIM.exe` plus README. |
-| Linux x86_64 | [`dist/HIKIM-linux-x86_64.tar.gz`](dist/HIKIM-linux-x86_64.tar.gz) | Portable binary. |
+| Windows | [HIKIM-setup.exe](https://github.com/willbearfruits/hikim/releases/latest/download/HIKIM-setup.exe) | Installer; bundles ffmpeg, installs per-user (no admin). |
+| Windows | [HIKIM-windows-portable.zip](https://github.com/willbearfruits/hikim/releases/latest/download/HIKIM-windows-portable.zip) | Portable `HIKIM.exe` + bundled ffmpeg. |
+| Linux x86_64 | [HIKIM-linux-x86_64.tar.gz](https://github.com/willbearfruits/hikim/releases/latest/download/HIKIM-linux-x86_64.tar.gz) | Portable binary (uses system `ffmpeg` on PATH). |
 
 These are mega-beta builds: barely tested, changing quickly, and not something to
 trust with irreplaceable work. Keep backups of sessions and source audio.
@@ -80,7 +82,8 @@ Linux dependencies:
 ```sh
 sudo apt install build-essential cmake libasound2-dev libjack-jackd2-dev \
     libfreetype-dev libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
-    libxinerama-dev libxrandr-dev libxrender-dev libfontconfig1-dev
+    libxinerama-dev libxrandr-dev libxrender-dev libfontconfig1-dev \
+    libcurl4-openssl-dev libgl1-mesa-dev
 ```
 
 Build:
