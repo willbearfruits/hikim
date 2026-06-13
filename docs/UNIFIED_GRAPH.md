@@ -102,11 +102,12 @@ just modules with outputs. ([The Unified Modulation System](https://www.bitwig.c
 - **M2 — PATCHER view = session-graph editor.** ✅ DONE (`237bf2d`). PATCHER embeds a
   `PatcherEditor` on the session graph — full object palette, all objects usable, audio
   everywhere. `RoutingView` no longer instantiated (file kept; delete later).
-- **M3 — mod sources as objects + extrude-any-param + retire mod bay.** TODO — the big
-  remaining one. Add `lfo/chaos/drunk/follow` objects + a `param` target object that
-  writes any session parameter (via `resolveParamTarget`) + alt-drag-extrude on knobs;
-  migrate `mods()` → session-graph number-cables; delete `PatchView` (still docked right
-  until this lands). *Tests: `lfo→param` modulates; old-session migration preserves mods.*
+- **M3 — mod sources as objects + retire mod bay.** ✅ DONE (`3d10c4a`). `chaos` +
+  `drunk` join `lfo~`/`env~` as TIME & CHANCE objects; `pset <ref> <target>` writes any
+  parameter via a new `ModConn.extSrc` on the engine's smoothed/plugin-safe path.
+  `PatchView` + `RoutingView` deleted; `mods()` still applies so old sessions keep their
+  modulations. **Deferred to M6:** alt-drag-extrude on knobs + a friendly pset target
+  picker (target is typed for now).
 - **M4 — mixer floats.** ✅ DONE (`35fa0e8`). `MixerView` → `FloatingWindow` (Options >
   Mixer window); bottom band is now DEVICES / PIANO ROLL / SAMPLE.
 - **M5 — dive + breadcrumb.** TODO. Double-click a channel/device node → its sub-patch on
