@@ -1,6 +1,7 @@
 #include "PatcherProcessor.h"
 #include "PatcherEditor.h"
 #include "../Model/Session.h"
+#include "../Engine/DspTables.h"
 
 namespace dg
 {
@@ -613,8 +614,9 @@ void PatcherProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
                     for (auto& gr : o.grains)
                     {
                         if (gr.remain <= 0) continue;
-                        const double ph = (double) (gr.dur - gr.remain) / (double) gr.dur;
-                        const float w = 0.5f - 0.5f * (float) std::cos (ph * juce::MathConstants<double>::twoPi);
+                        // Hann window from the shared load-time table (no per-sample cos)
+                        const int wi = (int) ((juce::int64) (gr.dur - gr.remain) * 1024 / juce::jmax (1, gr.dur));
+                        const float w = tables::hann[(size_t) juce::jlimit (0, 1024, wi)];
                         const int idx = (int) gr.pos;
                         const float frac = (float) (gr.pos - idx);
                         l += (sl[idx] + (sl[idx + 1] - sl[idx]) * frac) * w * gr.gl;
@@ -696,9 +698,8 @@ void PatcherProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
                         const double f = i0 ? i0[i] : o.a;
                         o.ph += f / sr;
                         o.ph -= std::floor (o.ph);
-                        out0[i] = o.type == oOsc
-                                      ? (float) std::sin (o.ph * juce::MathConstants<double>::twoPi)
-                                      : (float) o.ph;
+                        out0[i] = o.type == oOsc ? tables::sineAt (o.ph)   // table sine, not per-sample std::sin
+                                                 : (float) o.ph;
                     }
                 break;
 
@@ -719,7 +720,7 @@ void PatcherProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
                         out0[i] = shape == 1 ? (float) (2.0 * o.ph - 1.0)
                                 : shape == 2 ? (o.ph < 0.5 ? 1.0f : -1.0f)
                                 : shape == 3 ? o.held
-                                : (float) std::sin (o.ph * juce::MathConstants<double>::twoPi);
+                                : tables::sineAt (o.ph);       // table sine (sub-audio LFO: transparent)
                     }
                 break;
 
@@ -740,14 +741,29 @@ void PatcherProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
                 {
                     const float res = juce::jlimit (0.0f, 0.95f, o.b);
                     const float q = 1.0f - res;
-                    for (int i = 0; i < n; ++i)
+                    if (i1 == nullptr)              // constant cutoff: hoist the coefficient (bit-identical)
                     {
-                        const double fc = juce::jlimit (20.0, sr * 0.22, (double) (i1 ? i1[i] : o.a));
+                        const double fc = juce::jlimit (20.0, sr * 0.22, (double) o.a);
                         const float f = 2.0f * (float) std::sin (juce::MathConstants<double>::pi * fc / sr);
-                        o.z1 += f * o.z2;                       // low
-                        const float hpv = (i0 ? i0[i] : 0.0f) - o.z1 - q * o.z2;
-                        o.z2 += f * hpv;                        // band
-                        out0[i] = o.z1;
+                        for (int i = 0; i < n; ++i)
+                        {
+                            o.z1 += f * o.z2;
+                            const float hpv = (i0 ? i0[i] : 0.0f) - o.z1 - q * o.z2;
+                            o.z2 += f * hpv;
+                            out0[i] = o.z1;
+                        }
+                    }
+                    else                           // modulated cutoff: per-sample coefficient
+                    {
+                        for (int i = 0; i < n; ++i)
+                        {
+                            const double fc = juce::jlimit (20.0, sr * 0.22, (double) i1[i]);
+                            const float f = 2.0f * (float) std::sin (juce::MathConstants<double>::pi * fc / sr);
+                            o.z1 += f * o.z2;
+                            const float hpv = (i0 ? i0[i] : 0.0f) - o.z1 - q * o.z2;
+                            o.z2 += f * hpv;
+                            out0[i] = o.z1;
+                        }
                     }
                 }
                 break;
