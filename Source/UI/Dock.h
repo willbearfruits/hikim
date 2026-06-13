@@ -36,9 +36,14 @@ public:
             zones[z].active = getInt ("dock.active." + String (z), 0);
         }
         for (auto& p : panels)
+        {
             p.zone = juce::jlimit (0, 2, getInt ("dock.zone." + p.name, p.zone));
+            p.detached = getInt ("dock.detached." + p.name, 0) != 0;
+        }
         focus = getInt ("dock.focus", 0) != 0;
         rebuildZoneLists();
+        for (auto& p : panels)              // restore any panels that were left detached
+            if (p.detached) materialize (p);
     }
 
     // lays the zones out inside our bounds and reports the remaining center
@@ -50,7 +55,7 @@ public:
 
         if (focus)
         {
-            for (auto& p : panels) p.comp->setVisible (false);
+            for (auto& p : panels) if (! p.detached) p.comp->setVisible (false);
             return b + getPosition();
         }
 
@@ -102,7 +107,7 @@ public:
         layoutZone (zBottom, b);
 
         for (auto& p : panels)      // panels parked in a closed list stay hidden
-            if (! zones[p.zone].open || zones[p.zone].panels.empty())
+            if (! p.detached && (! zones[p.zone].open || zones[p.zone].panels.empty()))
                 if (! isActiveIn (p)) p.comp->setVisible (false);
 
         return b + getPosition();
@@ -113,6 +118,7 @@ public:
         for (auto& p : panels)
             if (p.name == name)
             {
+                if (p.detached) { if (auto* w = detachWins[name].get()) w->toFront (true); return; }
                 auto& zn = zones[p.zone];
                 for (int i = 0; i < (int) zn.panels.size(); ++i)
                     if (panels[(size_t) zn.panels[(size_t) i]].comp == p.comp)
@@ -124,6 +130,42 @@ public:
                 return;
             }
     }
+
+    // pop a panel out into its own window (dock <-> detach toggle); close the
+    // window to dock it back. Any registered panel can do this.
+    void detachPanel (const String& name)
+    {
+        for (auto& p : panels)
+            if (p.name == name && ! p.detached)
+            {
+                p.detached = true;
+                setInt ("dock.detached." + name, 1);
+                materialize (p);
+                rebuildZoneLists();
+                relayout();
+                return;
+            }
+    }
+    void dockPanel (const String& name)
+    {
+        for (auto& p : panels)
+            if (p.name == name && p.detached)
+            {
+                p.detached = false;
+                setInt ("dock.detached." + name, 0);
+                detachWins.erase (name);            // window dtor releases the non-owned content
+                addChildComponent (p.comp);         // back under the dock; relayout shows it
+                rebuildZoneLists();
+                auto& zn = zones[p.zone];
+                for (int i = 0; i < (int) zn.panels.size(); ++i)
+                    if (panels[(size_t) zn.panels[(size_t) i]].name == name) zn.active = i;
+                zn.open = true;
+                persistZone (p.zone);
+                relayout();
+                return;
+            }
+    }
+    void closeAllDetached() { detachWins.clear(); }   // call before the panels die
 
     void toggleFocus()
     {
@@ -235,7 +277,7 @@ public:
     }
 
 private:
-    struct Panel { String name; juce::Component* comp; int zone; };
+    struct Panel { String name; juce::Component* comp; int zone; bool detached = false; };
     struct ZoneState
     {
         std::vector<int> panels;     // indices into the panel list
@@ -245,6 +287,28 @@ private:
         juce::Rectangle<int> contentArea;
     };
     struct TabRect { juce::Rectangle<int> r; int zone; int index; };
+
+    // a detached panel lives in this window; closing it re-docks the panel
+    struct DetachWin : juce::DocumentWindow
+    {
+        DetachWin (Dock& d, String n)
+            : juce::DocumentWindow (n, col::panel, juce::DocumentWindow::allButtons),
+              dock (d), name (std::move (n))
+        {
+            setUsingNativeTitleBar (true);
+            setResizable (true, false);
+        }
+        void closeButtonPressed() override
+        {
+            juce::Component::SafePointer<Dock> safe (&dock);
+            const String n = name;
+            juce::MessageManager::callAsync ([safe, n] { if (safe != nullptr) safe->dockPanel (n); });
+        }
+        Dock& dock;
+        String name;
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DetachWin)
+    };
+    std::map<String, std::unique_ptr<DetachWin>> detachWins;
 
     bool isActiveIn (const Panel& p) const
     {
@@ -257,9 +321,20 @@ private:
     {
         for (auto& z : zones) z.panels.clear();
         for (int i = 0; i < (int) panels.size(); ++i)
-            zones[panels[(size_t) i].zone].panels.push_back (i);
+            if (! panels[(size_t) i].detached)               // detached panels live in windows
+                zones[panels[(size_t) i].zone].panels.push_back (i);
         for (auto& z : zones)
             z.active = juce::jlimit (0, juce::jmax (0, (int) z.panels.size() - 1), z.active);
+    }
+
+    void materialize (Panel& p)                              // build the window for a detached panel
+    {
+        auto w = std::make_unique<DetachWin> (*this, p.name);
+        w->setContentNonOwned (p.comp, false);               // reparent the panel into the window
+        w->setSize (juce::jmax (360, p.comp->getWidth()), juce::jmax (240, p.comp->getHeight()));
+        w->setVisible (true);
+        w->toFront (true);
+        detachWins[p.name] = std::move (w);
     }
 
     void showTabMenu (int zone, int index)
@@ -269,12 +344,15 @@ private:
         m.addItem (1, "Move to LEFT", zone != zLeft);
         m.addItem (2, "Move to RIGHT", zone != zRight);
         m.addItem (3, "Move to BOTTOM", zone != zBottom);
+        m.addSeparator();
+        m.addItem (4, "Detach to window");
         const int panelIdx = zones[zone].panels[(size_t) index];
         juce::Component::SafePointer<Dock> safe (this);
         m.showMenuAsync ({}, [safe, panelIdx] (int r)
         {
             if (safe == nullptr || r == 0) return;
             auto& p = safe->panels[(size_t) panelIdx];
+            if (r == 4) { safe->detachPanel (p.name); return; }
             p.zone = r - 1;
             safe->setInt ("dock.zone." + p.name, p.zone);
             safe->rebuildZoneLists();

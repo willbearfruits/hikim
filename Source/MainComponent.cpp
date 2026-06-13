@@ -168,6 +168,7 @@ MainComponent::MainComponent()
 
 MainComponent::~MainComponent()
 {
+    if (dock != nullptr) dock->closeAllDetached();   // detach windows die before their panels
     editorWindows.clear();
     settingsWin.reset();
     pluginWin.reset();
