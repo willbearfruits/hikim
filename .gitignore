@@ -1,6 +1,7 @@
 build/
 build-*/
 build-*.log
+installer/Output/
 .cache/
 compile_commands.json
 *.dgproj_backup
