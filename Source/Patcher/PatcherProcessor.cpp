@@ -25,10 +25,21 @@ const std::vector<PatcherProcessor::Spec>& PatcherProcessor::specs()
         { "hipass~", oHipass, 1, 1, "120", "highpass (cutoff)", famEffect, "s", "s" },
         { "delay~", oDelay, 2, 1, "250 0.5", "delay (ms, feedback) - loops ok", famEffect, "ss", "s" },
         { "tanh~", oTanh, 1, 1, "4", "saturate (drive)", famEffect, "s", "s" },
+        { "comb~", oComb, 2, 1, "10 0.5", "comb filter (delay ms, feedback)", famEffect, "ss", "s" },
+        { "crush~", oCrush, 2, 1, "8", "bitcrush (bits, downsample arg)", famEffect, "ss", "s" },
+        { "fold~", oFold, 2, 1, "1", "wavefolder (drive)", famEffect, "ss", "s" },
+        { "pan~", oPan, 2, 2, "0", "stereo pan (pos -1..1)", famEffect, "sn", "ss" },
         { "number", oNumber, 1, 1, "0", "value box: drag it (Ctrl-drag moves) - the modulation currency", famMath, "n", "n" },
         { "*~", oMul, 2, 1, "0.5", "multiply (in2 or arg)", famMath, "ss", "s" },
         { "+~", oAdd, 2, 1, "0", "add (in2 or arg)", famMath, "ss", "s" },
         { "scale", oScale, 1, 1, "0 1", "map 0..1 to (lo, hi)", famMath, "n", "n" },
+        { "+", oAdd, 2, 1, "0", "add (number)", famMath, "nn", "n" },
+        { "-", oSub, 2, 1, "0", "subtract (in2 or arg)", famMath, "nn", "n" },
+        { "*", oMul, 2, 1, "1", "multiply (number)", famMath, "nn", "n" },
+        { "/", oDiv, 2, 1, "1", "divide (in2 or arg, /0 guarded)", famMath, "nn", "n" },
+        { "clip", oClip, 1, 1, "0 1", "clamp to (lo, hi)", famMath, "n", "n" },
+        { "wrap", oWrap, 1, 1, "0 1", "wrap into (lo, hi)", famMath, "n", "n" },
+        { "slew", oSlew, 1, 1, "0.001", "slew limit (max step/sample)", famMath, "n", "n" },
         { "sah~", oSah, 2, 1, "", "sample & hold (sig, trig)", famMath, "se", "s" },
         { "env~", oEnv, 1, 1, "5 120", "envelope follower (atk, rel ms)", famMath, "s", "n" },
         { "param", oParam, 0, 1, "1", "host knob P1-8", famMath, "", "n" },
@@ -249,6 +260,7 @@ void PatcherProcessor::compile()
         switch (o.type)
         {
             case oDelay:
+            case oComb:                                                                                            // comb shares delay~'s line + deferred write
                 o.line.assign ((size_t) juce::nextPowerOfTwo (juce::jmax (256, (int) (sampleRate * 2.0))), 0.0f);   // pow2: mask instead of % per sample
                 break;
             case oParam:
@@ -778,6 +790,70 @@ void PatcherProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
                 }
                 break;
 
+            case oComb:         // feedback comb read pass; the write (input + out*fb) is deferred like delay~
+                if (out0)
+                {
+                    const int len = (int) o.line.size();
+                    const int lm = len - 1;                     // line is pow2-sized
+                    for (int i = 0; i < n; ++i)
+                    {
+                        const double ms = i1 ? juce::jmax (0.0f, i1[i]) : o.a;
+                        int d = (int) (ms * 0.001 * sr);
+                        d = juce::jlimit (n, len - 1, d);       // feedback-safe minimum (>= one block)
+                        out0[i] = o.line[(size_t) ((o.wp + i - d + len) & lm)];
+                    }
+                }
+                break;
+
+            case oCrush:        // bitcrush: quantise to 2^bits levels, sample-and-hold every o.b samples
+                if (out0)
+                {
+                    const int bits = juce::jlimit (1, 16, (int) (i1 ? i1[n - 1] : o.a));
+                    const float levels = (float) (1 << bits);
+                    const int down = juce::jmax (1, (int) o.b);
+                    for (int i = 0; i < n; ++i)
+                    {
+                        if (o.wp <= 0)                          // wp doubles as the hold countdown here
+                        {
+                            const float x = i0 ? i0[i] : 0.0f;
+                            o.held = std::round (x * levels) / levels;
+                            o.wp = down;
+                        }
+                        --o.wp;
+                        out0[i] = o.held;
+                    }
+                }
+                break;
+
+            case oFold:         // triangle wavefolder: fold x*drive into [-1,1], period-4 triangle
+                if (out0)
+                {
+                    const float drive = juce::jmax (0.1f, i1 ? i1[n - 1] : o.a);
+                    for (int i = 0; i < n; ++i)
+                    {
+                        const float x = (i0 ? i0[i] : 0.0f) * drive;
+                        float p = (x + 1.0f) * 0.25f;           // unit phase, period 4 in x
+                        p = p - std::floor (p);                 // 0..1
+                        out0[i] = 1.0f - 4.0f * std::abs (p - 0.5f);   // triangle: f(0)=0,f(1)=1,f(3)=-1
+                    }
+                }
+                break;
+
+            case oPan:          // equal-power stereo pan: pos -1..1 from i1 or arg
+                if (out0 || out1)
+                {
+                    const float quarterPi = juce::MathConstants<float>::pi * 0.25f;
+                    for (int i = 0; i < n; ++i)
+                    {
+                        const float pos = juce::jlimit (-1.0f, 1.0f, i1 ? i1[i] : o.a);
+                        const float ang = (pos + 1.0f) * quarterPi;   // 0..pi/2
+                        const float in = i0 ? i0[i] : 0.0f;
+                        if (out0) out0[i] = in * std::cos (ang);
+                        if (out1) out1[i] = in * std::sin (ang);
+                    }
+                }
+                break;
+
             case oNumber:       // value box: inlet sets it, outlet emits it
                 if (out0)
                 {
@@ -860,6 +936,51 @@ void PatcherProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
                         out0[i] = o.a + (i0 ? i0[i] : 0.0f) * (o.b - o.a);
                 break;
 
+            case oSub:
+                if (out0)
+                    for (int i = 0; i < n; ++i)
+                        out0[i] = (i0 ? i0[i] : 0.0f) - (i1 ? i1[i] : o.a);
+                break;
+
+            case oDiv:          // guard /0: a near-zero divisor falls back to 1
+                if (out0)
+                    for (int i = 0; i < n; ++i)
+                    {
+                        const float d = i1 ? i1[i] : o.a;
+                        out0[i] = (i0 ? i0[i] : 0.0f) / (std::abs (d) < 1.0e-9f ? 1.0f : d);
+                    }
+                break;
+
+            case oClip:         // clamp to (o.a, o.b)
+                if (out0)
+                    for (int i = 0; i < n; ++i)
+                        out0[i] = juce::jlimit (o.a, o.b, i0 ? i0[i] : 0.0f);
+                break;
+
+            case oWrap:         // wrap into [o.a, o.b); degenerate range passes through
+                if (out0)
+                {
+                    const float w = o.b - o.a;
+                    for (int i = 0; i < n; ++i)
+                    {
+                        const float x = i0 ? i0[i] : 0.0f;
+                        out0[i] = w <= 0.0f ? x : o.a + std::fmod (std::fmod (x - o.a, w) + w, w);
+                    }
+                }
+                break;
+
+            case oSlew:         // limit the per-sample change to o.a
+                if (out0)
+                {
+                    const float step = juce::jmax (0.0f, o.a);
+                    for (int i = 0; i < n; ++i)
+                    {
+                        o.z1 += juce::jlimit (-step, step, (i0 ? i0[i] : 0.0f) - o.z1);
+                        out0[i] = o.z1;
+                    }
+                }
+                break;
+
             case oSig:
                 if (out0)
                     juce::FloatVectorOperations::fill (out0, o.a, n);
@@ -888,14 +1009,17 @@ void PatcherProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
         }
     }
 
-    // pass 2: delay writes (this is what makes feedback loops legal)
+    // pass 2: delay/comb writes (this is what makes feedback loops legal -
+    // out0 already holds the delayed read, so input + out0*fb recurses).
+    // comb~ feedback (o.b) clamps tighter; its i1 is delay-ms, not feedback.
     for (auto& o : prog->objs)
-        if (o.type == oDelay)
+        if (o.type == oDelay || o.type == oComb)
         {
             const int len = (int) o.line.size();
             const int lm = len - 1;                             // line is pow2-sized
             const float* i0 = o.in0 >= 0 ? bufs.getReadPointer (o.in0) : nullptr;
-            const float fb = juce::jlimit (0.0f, 0.95f, o.b);
+            const float fb = o.type == oComb ? juce::jlimit (-0.95f, 0.95f, o.b)
+                                             : juce::jlimit (0.0f, 0.95f, o.b);
             float* out0 = bp (o.out0);
             for (int i = 0; i < n; ++i)
                 o.line[(size_t) ((o.wp + i) & lm)] =

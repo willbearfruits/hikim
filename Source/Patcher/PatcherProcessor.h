@@ -24,7 +24,8 @@ public:
         oAdc, oDac, oOsc, oPhasor, oNoise, oLfo, oMul, oAdd, oLores, oHipass,
         oDelay, oTanh, oSah, oEnv, oMetro, oRandom, oScale, oSig, oParam,
         oOscIn, oOscOut, oModOut, oNumber, oChan, oStrip, oClock, oMaster,
-        oSample, oGrain, oChaos, oDrunk, oPset, oUnknown
+        oSample, oGrain, oChaos, oDrunk, oPset,
+        oComb, oCrush, oFold, oPan, oSub, oDiv, oClip, oWrap, oSlew, oUnknown
     };
     // NODES.md object families (palette sections + box/cable colours)
     enum Family { famSource, famEffect, famMath, famTime, famRouting };
