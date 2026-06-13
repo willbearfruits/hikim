@@ -95,26 +95,27 @@ just modules with outputs. ([The Unified Modulation System](https://www.bitwig.c
 
 ## Build order (milestones — each builds, tests green, app runs)
 
-- **M1 — session graph node in the engine.** `SessionGraphProcessor` owned by
-  `AudioEngine`, persisted under a `GRAPH` child of the session tree, injected into
-  master. Empty = bit-transparent. *Tests: empty graph silent; `osc~→master~` makes
-  sound at master; `chan~`/`strip` reach the right strip.*
-- **M2 — PATCHER view = session-graph editor.** Replace `RoutingView`'s bespoke
-  channel drawing with `NodeCanvas` hosting the session graph (the same `NodeComp` +
-  objects as WIRES). Channels surface as `chan~`/`strip` nodes (or a `channel` node);
-  routing cables still edit the session tree. *The big UI merge.*
-- **M3 — mod sources as objects + extrude-any-param + retire mod bay.** Add
-  `lfo/chaos/drunk/follow` objects + the `param` target object + alt-drag extrude;
-  migrate `mods()` → session-graph number-cables; delete `PatchView`. *Tests:
-  `lfo→param` modulates; old-session migration preserves mods.*
-- **M4 — mixer floats.** `MixerView` → `FloatingWindow` (Options / button); drop it
-  from the bottom band.
-- **M5 — dive + breadcrumb.** Double-click a channel/device node → its sub-patch on the
-  same canvas; breadcrumb climbs out. WIRES device editor becomes a dive.
-- **M6 — I/O audit + polish.** Typed ports correct across audio/number/event/notes for
-  every object; LOD; palette grouping; the param-extrude affordance on every knob.
+- **M1 — session graph node in the engine.** ✅ DONE (`6a0dac5`). `AudioEngine` owns a
+  `PatcherProcessor` (starterPatch=false), processed each chunk before the track graph,
+  injecting into master; persisted under a `GRAPH` child. Empty = bit-transparent
+  (tested + verified 8s of live callbacks).
+- **M2 — PATCHER view = session-graph editor.** ✅ DONE (`237bf2d`). PATCHER embeds a
+  `PatcherEditor` on the session graph — full object palette, all objects usable, audio
+  everywhere. `RoutingView` no longer instantiated (file kept; delete later).
+- **M3 — mod sources as objects + extrude-any-param + retire mod bay.** TODO — the big
+  remaining one. Add `lfo/chaos/drunk/follow` objects + a `param` target object that
+  writes any session parameter (via `resolveParamTarget`) + alt-drag-extrude on knobs;
+  migrate `mods()` → session-graph number-cables; delete `PatchView` (still docked right
+  until this lands). *Tests: `lfo→param` modulates; old-session migration preserves mods.*
+- **M4 — mixer floats.** ✅ DONE (`35fa0e8`). `MixerView` → `FloatingWindow` (Options >
+  Mixer window); bottom band is now DEVICES / PIANO ROLL / SAMPLE.
+- **M5 — dive + breadcrumb.** TODO. Double-click a channel/device node → its sub-patch on
+  the same canvas; breadcrumb climbs out. WIRES device editor becomes a dive.
+- **M6 — I/O audit + polish.** TODO. Typed ports correct across audio/number/event/notes;
+  LOD; palette grouping; the param-extrude affordance on every knob.
 
-M1/M2/M5 are the heavy ones. Estimated several rounds each; the arc is multi-session.
+M1/M2 (the heavy merge) + M4 shipped. **M3 is next** and is itself multi-round (new
+objects, param-extrude UI, migration). M5/M6 follow.
 
 ## Risks / invariants to hold
 
