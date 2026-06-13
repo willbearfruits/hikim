@@ -84,6 +84,7 @@ private:
     std::unique_ptr<Dock> dock;             // modular LEFT/RIGHT/BOTTOM panel zones
     std::unique_ptr<StatusBar> statusBar;   // v2 footer hint bar
     void updateViewHint();                  // footer text per view
+    int bottomBandKind = 0;                 // 0 none, 1 track (DEVICES), 2 clip (PIANO ROLL/SAMPLE)
     std::unique_ptr<MixerView> mixer;
     std::unique_ptr<PianoRoll> pianoRoll;
     std::unique_ptr<FileBin> fileBin;

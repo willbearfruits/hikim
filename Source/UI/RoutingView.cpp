@@ -309,6 +309,7 @@ bool RoutingView::handlePress (juce::Point<float> p, bool popup)
         if (b.r.toFloat().contains (p))
         {
             ui.selectedTrack = b.track[id::uid].toString();
+            ui.selectionChanged();
 
             // chip click -> open device editor (placeholder -> pick an instrument);
             // right-click -> remove / change instrument

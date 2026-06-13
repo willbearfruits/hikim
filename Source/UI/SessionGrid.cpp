@@ -343,6 +343,7 @@ void SessionGrid::mouseDown (const juce::MouseEvent& e)
     {
         const auto& t = tracks[(size_t) c.col];
         ui.selectedTrack = t[id::uid].toString();
+        ui.selectionChanged();
         if (c.armBtn)
         {
             auto track = tracks[(size_t) c.col];

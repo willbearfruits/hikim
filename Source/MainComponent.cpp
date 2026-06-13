@@ -107,6 +107,7 @@ MainComponent::MainComponent()
     {
         pianoRoll->setClip (clip);
         selectTab ("PIANO ROLL");
+        bottomBandKind = 2;                     // clip kind: next track-select flips to DEVICES
         if (pianoRoll->isShowing())
             pianoRoll->grabKeyboardFocus();     // note keys work the moment the roll opens
     };
@@ -114,6 +115,7 @@ MainComponent::MainComponent()
     {
         sampleEditor->setClip (clip);
         selectTab ("SAMPLE");
+        bottomBandKind = 2;
     };
     ui.openInsertEditor = [this] (const String& trackUid, const String& insertUid)
     {
@@ -143,6 +145,16 @@ MainComponent::MainComponent()
     statusBar = std::make_unique<StatusBar> (ui);
     addAndMakeVisible (*statusBar);
     ui.setHint = [this] (const String& h) { statusBar->setHint (h); };
+
+    // selection-follows-detail: selecting a track shows its DEVICES in the bottom
+    // band. Only flip on a selection-KIND change, so a manually-pinned panel
+    // (MIXER, say) survives clicking between tracks - clip double-clicks route to
+    // PIANO ROLL / SAMPLE below and stamp the clip kind.
+    ui.onSelectionChanged = [this]
+    {
+        if (dock->isFocus() || ui.selectedTrack.isEmpty()) return;
+        if (bottomBandKind != 1) { dock->showPanel ("DEVICES"); bottomBandKind = 1; }
+    };
 
     addChildComponent (helpOverlay);
 
@@ -357,6 +369,7 @@ void MainComponent::menuItemSelected (int itemID, int)
             ins.setProperty (id::ident, "builtin:wires", &session.undo);
             ins.setProperty (id::name, names::patcherName, &session.undo);
             ui.selectedTrack = t[id::uid].toString();
+            ui.selectionChanged();
             break;
         }
         case mAudioSettings:

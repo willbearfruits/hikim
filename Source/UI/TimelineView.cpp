@@ -1035,6 +1035,7 @@ public:
     void mouseDown (const juce::MouseEvent& e) override
     {
         tv.ui.selectedTrack = track[id::uid].toString();
+        tv.ui.selectionChanged();               // bottom band shows this track's devices
         tv.repaint();
         getParentComponent()->repaint();
 
