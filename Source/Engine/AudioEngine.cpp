@@ -38,6 +38,31 @@ AudioEngine::AudioEngine (SessionModel& s, PluginHost& ph, juce::PropertiesFile*
     previewPlayer.setSource (&previewTransport);
     deviceManager.addAudioCallback (&previewPlayer);
 
+    // the session-scope node graph (PATCHER altitude). Empty = silent. It bridges
+    // into the mixer through the same rings the WIRES device uses: chan~ taps,
+    // strip drives, master~ injects. Providers set once; resolved live per compile.
+    sessionGraph = std::make_unique<PatcherProcessor> (false);
+    sessionGraph->setChanTapProvider ([this] (const String& ref, bool pre) -> std::shared_ptr<ChanTap>
+    {
+        auto t = resolveTrackRef (ref);
+        if (auto* st = t.isValid() ? getStrip (t[id::uid].toString()) : nullptr)
+            return pre ? st->tapPre : st->tapPost;
+        return nullptr;
+    });
+    sessionGraph->setStripCtlProvider ([this] (const String& ref) -> std::shared_ptr<StripControl>
+    {
+        auto t = resolveTrackRef (ref);
+        if (auto* st = t.isValid() ? getStrip (t[id::uid].toString()) : nullptr)
+            return st->control;
+        return nullptr;
+    });
+    sessionGraph->setSampleProvider ([this] (const String& path) -> std::shared_ptr<const SampleBuf>
+    {
+        return File::isAbsolutePath (path) ? loadSampleBuf (File (path)) : nullptr;
+    });
+    sessionGraph->onInjectsChanged = [this] { scheduleRebuild (rebuild::mods); };
+    sessionGraph->onModOutsChanged = [this] { scheduleRebuild (rebuild::mods); };
+
     writeEvents.reserve (1 << 16);     // producers tryEnter+push from RT-reachable paths: no growth allowed
     hostedPump.startTimer (33);
     startTimer (1000);
@@ -76,6 +101,17 @@ void AudioEngine::sessionReplaced()
     rebuildTempoMap();
     rebuildGraph();
     updateTransportFromTree();
+
+    // restore the session-scope graph (empty for a fresh session)
+    if (sessionGraph != nullptr)
+    {
+        auto g = session.root.getChildWithName (id::GRAPH);
+        juce::MemoryBlock mb;
+        if (g.isValid() && mb.fromBase64Encoding (g.getProperty (id::state).toString()) && mb.getSize() > 0)
+            sessionGraph->setStateInformation (mb.getData(), (int) mb.getSize());
+        else
+            sessionGraph->patch.removeAllChildren (nullptr);
+    }
 }
 
 void AudioEngine::scheduleRebuild (int what)
@@ -612,6 +648,15 @@ void AudioEngine::syncToTree()
             }
         }
     }
+
+    // the session-scope graph persists under the session tree's GRAPH child
+    if (sessionGraph != nullptr)
+    {
+        juce::MemoryBlock mb;
+        sessionGraph->getStateInformation (mb);
+        session.root.getOrCreateChildWithName (id::GRAPH, nullptr)
+            .setProperty (id::state, mb.toBase64Encoding(), nullptr);
+    }
 }
 
 // ============================================================ playlists
@@ -937,6 +982,9 @@ void AudioEngine::rebuildMods()
                                              "wires:" + ins[id::uid].toString() + ":" + String (i),
                                              t[id::name].toString() + " WIRES " + String (i + 1) });
         }
+    if (sessionGraph != nullptr)                 // session-scope master~ injects too
+        for (auto& r : sessionGraph->getInjectRings())
+            injectList->push_back (r);
     if (auto* ms = getStrip ("master"))
         ms->setInjects (std::move (injectList));
 
@@ -1535,6 +1583,14 @@ void AudioEngine::audioDeviceAboutToStart (juce::AudioIODevice* device)
     graph.setPlayConfigDetails (chans, chans, currentSR, currentBlock);
     graph.prepareToPlay (currentSR, currentBlock);
 
+    if (sessionGraph != nullptr)
+    {
+        sessionGraph->setPlayConfigDetails (2, 2, currentSR, currentBlock);
+        sessionGraph->setPlayHead (this);               // clock~ reads the transport
+        sessionGraph->prepareToPlay (currentSR, currentBlock);
+    }
+    sgBuf.setSize (2, currentBlock);
+
     // sample-rate-dependent RT data must be rebuilt on the message thread
     juce::MessageManager::callAsync ([safe = juce::WeakReference<AudioEngine> (this)]
     {
@@ -1551,6 +1607,7 @@ void AudioEngine::audioDeviceAboutToStart (juce::AudioIODevice* device)
 void AudioEngine::audioDeviceStopped()
 {
     graph.releaseResources();
+    if (sessionGraph != nullptr) sessionGraph->releaseResources();
 }
 
 void AudioEngine::handleIncomingMidiMessage (juce::MidiInput*, const juce::MidiMessage& m)
@@ -1703,6 +1760,17 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* input, i
                 for (const auto meta : midiSeg)
                     if (midiRecEvents.size() < midiRecEvents.capacity())
                         midiRecEvents.push_back ({ pos + meta.samplePosition, meta.getMessage() });
+        }
+
+        // the session graph runs just before the track graph each chunk: its
+        // master~ injects into master (which runs inside the graph below), its
+        // strip seizures re-stamp every chunk, its chan~ reads last chunk's taps
+        if (sessionGraph != nullptr && sgBuf.getNumSamples() >= len)
+        {
+            float* sgPtrs[2] = { sgBuf.getWritePointer (0), sgBuf.getWritePointer (1) };
+            juce::AudioBuffer<float> sgSub (sgPtrs, 2, len);
+            sgSub.clear();
+            sessionGraph->processBlock (sgSub, midiSeg);
         }
 
         graph.processBlock (sub, midiSeg);

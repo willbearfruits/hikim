@@ -11,7 +11,7 @@ namespace dg::id
     DG_ID (TIMESIG)   DG_ID (TRACKS)    DG_ID (TRACK)    DG_ID (CLIPS)
     DG_ID (CLIP)      DG_ID (NOTES)     DG_ID (NOTE)     DG_ID (INSERTS)
     DG_ID (INSERT)    DG_ID (AUTO)      DG_ID (LANE)     DG_ID (PT)
-    DG_ID (MARKERS)   DG_ID (MARKER)    DG_ID (VIDEO)
+    DG_ID (MARKERS)   DG_ID (MARKER)    DG_ID (VIDEO)    DG_ID (GRAPH)   // session-scope node graph
     DG_ID (MODS)      DG_ID (MOD)      DG_ID (MODTARGET)   // modulation patch
     DG_ID (SCENES)    DG_ID (SCENE)    DG_ID (SLOTS)    DG_ID (SLOT)   // session view
 

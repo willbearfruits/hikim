@@ -58,7 +58,7 @@ PatcherProcessor::Obj PatcherProcessor::parseType (const String& name)
     return oUnknown;
 }
 
-PatcherProcessor::PatcherProcessor()
+PatcherProcessor::PatcherProcessor (bool starterPatch)
     : AudioProcessor (BusesProperties()
                           .withInput ("In", juce::AudioChannelSet::stereo(), true)
                           .withOutput ("Out", juce::AudioChannelSet::stereo(), true))
@@ -68,12 +68,15 @@ PatcherProcessor::PatcherProcessor()
             { "p" + String (i + 1), 1 }, "P" + String (i + 1),
             juce::NormalisableRange<float> (0.0f, 1.0f), 0.0f));
 
-    // starter patch: adc~ wired straight to dac~ so inserting WIRES is
-    // passthrough until you patch something in between
-    auto adc = addNode ("adc~", 220, 70);
-    auto dac = addNode ("dac~", 220, 300);
-    addCable (adc[id::uid].toString(), 0, dac[id::uid].toString(), 0);
-    addCable (adc[id::uid].toString(), 1, dac[id::uid].toString(), 1);
+    if (starterPatch)
+    {
+        // starter patch: adc~ wired straight to dac~ so inserting WIRES is
+        // passthrough until you patch something in between
+        auto adc = addNode ("adc~", 220, 70);
+        auto dac = addNode ("dac~", 220, 300);
+        addCable (adc[id::uid].toString(), 0, dac[id::uid].toString(), 0);
+        addCable (adc[id::uid].toString(), 1, dac[id::uid].toString(), 1);
+    }
 
     patch.addListener (this);
     startTimerHz (30);

@@ -63,6 +63,7 @@ public:
     // ---- lookups for UI ----
     ChannelStripProcessor* getStrip (const String& trackUid) const;
     ValueTree resolveTrackRef (const String& ref) const;   // WIRES chan~/strip: "2" | name | "master"
+    PatcherProcessor* getSessionGraph() const { return sessionGraph.get(); }   // PATCHER edits this
     std::shared_ptr<const SampleBuf> loadSampleBuf (const File&);   // WIRES sample~ (cached)
     SendProcessor* getSend (const String& trackUid, int which) const;
     juce::AudioProcessor* getInsertProcessor (const String& insertUid) const;
@@ -311,6 +312,12 @@ private:
     std::map<String, std::pair<String, std::shared_ptr<juce::AudioFormatReader>>> readerCache; // clipUid -> (path, reader)
     std::map<String, String> bridgeCache;                                   // src key -> readable path
     std::map<String, std::weak_ptr<const SampleBuf>> sampleBufCache;        // path -> WIRES sample~ buffer
+
+    // the session-scope node graph (PATCHER altitude): runs ALONGSIDE the track
+    // graph, processed each chunk before it, bridging in via chan~/strip/master~
+    // rings. Persists under the session tree's GRAPH child.
+    std::unique_ptr<PatcherProcessor> sessionGraph;
+    juce::AudioBuffer<float> sgBuf;                                         // session-graph scratch
     std::map<String, std::shared_ptr<const AudioPlaylist>> lastPlaylists;
     std::map<String, std::shared_ptr<const MidiPlaylist>> lastMidiPlaylists;
     std::vector<std::shared_ptr<const AudioPlaylist>> playlistGraveyard;

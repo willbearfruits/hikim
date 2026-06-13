@@ -37,7 +37,9 @@ public:
     static Obj parseType (const String& name);
     static const Spec* specFor (const String& name);
 
-    PatcherProcessor();
+    // starterPatch=false leaves the patch empty (the session-scope graph wants
+    // no default adc~->dac~; empty = bit-transparent)
+    explicit PatcherProcessor (bool starterPatch = true);
     ~PatcherProcessor() override;
 
     // ---- AudioProcessor ----

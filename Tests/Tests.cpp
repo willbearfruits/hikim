@@ -685,6 +685,30 @@ struct PatcherTests : juce::UnitTest
         expect (finite, "grain sum stays finite");
         expect (cloudPeak > 0.01f && cloudPeak < 8.0f,
                 "cloud is audible and bounded: " + String (cloudPeak));
+
+        beginTest ("session graph: starterPatch=false is empty and bit-transparent");
+        PatcherProcessor def;                       // default: adc~ + dac~ starter
+        int defNodes = 0;
+        for (const auto& nd : def.patch) if (nd.getType().toString() == "NODE") ++defNodes;
+        expectEquals (defNodes, 2, "default carries the adc~->dac~ starter");
+        PatcherProcessor sg (false);                // session graph: empty
+        int sgNodes = 0;
+        for (const auto& nd : sg.patch) if (nd.getType().toString() == "NODE") ++sgNodes;
+        expectEquals (sgNodes, 0, "empty graph has no nodes");
+        sg.setPlayConfigDetails (2, 2, 48000.0, 256);
+        sg.prepareToPlay (48000.0, 256);
+        juce::AudioBuffer<float> sgb (2, 256), sgref (2, 256);
+        juce::Random rr (3);
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < 256; ++i)
+                sgb.setSample (ch, i, rr.nextFloat() - 0.5f);
+        sgref.makeCopyOf (sgb);
+        sg.processBlock (sgb, midi);
+        bool transparent = true;
+        for (int i = 0; i < 256 && transparent; ++i)
+            transparent = std::abs (sgb.getSample (0, i) - sgref.getSample (0, i)) < 1.0e-9f
+                       && std::abs (sgb.getSample (1, i) - sgref.getSample (1, i)) < 1.0e-9f;
+        expect (transparent, "empty graph leaves audio untouched");
     }
 };
 
