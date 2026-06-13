@@ -68,6 +68,20 @@ Insert nodes are persistent across rebuilds, keyed by INSERT uid in `insertNodes
 types: `rack` (TEETH), `patcher` (WIRES), `plugin` (hosted), `instrument`
 (hosted or `builtin:rust|gravel|hymn|rubble|wires`).
 
+**The session-scope graph (WIRES = PATCHER).** The same `PatcherProcessor` that runs as
+a WIRES insert also runs once at *session* scope — `AudioEngine::getSessionGraph()`, the
+graph the PATCHER view edits. The engine processes it per-chunk *before* the track
+`AudioProcessorGraph` (skipped when `isActive()` is false → empty = bit-transparent, so
+it constructs with `starterPatch=false`). It does **not** replace the graph spine; it
+bridges into it through the lock-free rings in `Source/Engine/Taps.h`: `ChanTap` (a
+`chan~` source taps a strip's output), `InjectRing` (`master~`/session `dac~` inject into
+a target channel or master), `StripControl` (drive a strip's gain/pan/mute), `SampleBuf`
+(`sample~`/`grain~` buffers). The engine resolves typed track refs ("2", "DRUMS",
+"master") and sample paths to these via the `set*Provider` callbacks; tests inject fakes.
+`pset` writes any session parameter through `ModConn.extSrc`. This is why the old
+modulation mod-bay is gone — modulators are now node objects (`lfo~`/`chaos`/`drunk`/`env~`
+→ `pset`/`strip`).
+
 ## The RT-safety pattern (used everywhere — copy it, don't invent new ones)
 
 Message thread builds an immutable snapshot (`AudioPlaylist`, `MidiPlaylist`, `TempoMap`,
@@ -89,6 +103,15 @@ never frees memory** (BufferingAudioReaders especially). Session-view launches a
   components that rebuilds delete (capture the parent view pointer + ValueTrees instead).
 - `juce::OSCAddress`/`OSCAddressPattern` **throw** on malformed strings; WIRES args are
   user-typed — wrap in try/catch.
+- **A patch recompile resets all DSP state, so it clicks** — `PatcherProcessor::compile()`
+  rebuilds every `PObj` fresh. `valueTreePropertyChanged` must ignore *cosmetic* props
+  (currently `id::x`/`id::y`) so dragging a box doesn't recompile ~60×/s (audible while
+  playing). Any new cosmetic-only node property gets the same early-return.
+- **Don't break bit-transparency with build flags.** No global `-ffast-math`,
+  `-march=native`, or AVX contraction — FMA reassociation changes results and fails the
+  bit-identity tests. Audio-rate transcendentals read the shared load-time lookup tables
+  in `Source/Engine/DspTables.h` (the RT thread never computes `sin`/`cos` per sample,
+  never allocates, never takes an init lock); `sineAt` clamps its index — keep that guard.
 - Colours: `col::` (Source/UI/Look.h) is a *runtime* palette (light/dark themes). Read it
   at paint time. If a component calls `setColour` explicitly, it must refresh on theme
   change (`lookAndFeelChanged` or per-tick).
@@ -103,21 +126,46 @@ never frees memory** (BufferingAudioReaders especially). Session-view launches a
   New object = `Obj` enum + `specs()` row (name/ports/defaults/desc + NODES.md `Family`
   and per-port type chars `s`/`n`/`e`) + a `processBlock` case (~20 lines). The palette
   groups by family; ports and cables draw by port type. `param N` bridges 8 host
-  parameters.
+  parameters. The object set now spans sources/effects/math/time/routing — including the
+  session-only bridges (`chan~`, `strip`, `master~`, `sample~`, `grain~`, `pset`) that
+  only do anything when the patch runs at session scope (see above). Objects needing
+  engine state get a `set*Provider`; setting one recompiles so refs re-resolve.
 - **Clip editing** lives UI-free in `Source/Model/ClipOps.*` so tests drive exactly what
   the timeline does. Extend there, not in TimelineView.
 - **Media**: `AudioEngine::mediaFileFor/createAnyReader` — JUCE decoders first, else a
   cached ffmpeg transcode. All file reads (import, playback, thumbnails, preview,
   StretchCache, BPM detect) must route through it.
-- **Views**: three modes (TimelineView / SessionGrid / RoutingView) swapped by
-  `MainComponent::toggleView`; bottom `TabbedComponent` hosts Mixer/Chain/Patch(mod
-  bay)/PianoRoll/Sample/Files/Fx panels. Cross-view state + callbacks live in `UIState`.
+- **Views & layout** (v2, Bitwig-inspired horizontal — see `docs/V2_LAYOUT.md`): the
+  center swaps three modes via `MainComponent::toggleView` — `TimelineView`, `SessionGrid`,
+  and `NodeView` (PATCHER = the session graph + dive/breadcrumb over the shared zoomable
+  `NodeCanvas`). `RoutingView`/`PatchView` are **deleted**. Everything around the center is
+  `Source/UI/Dock.h`: panels live in LEFT/RIGHT/BOTTOM zones (Mixer/Chain/PianoRoll/Sample/
+  Browser/Video…) and **any panel can detach to its own window** (chip menu → "Detach";
+  closing the window re-docks). `closeAllDetached()` must run before the panels die. A
+  `StatusBar` footer shows hints. Cross-view state + callbacks live in `UIState`.
 
 Deliberate growth points are marked `// EXTEND:` at the exact line — grep for them before
 designing something new. `ROADMAP.md` holds the owner-approved phase plan (Phases A–C of
-the Live/Max build-out are done); the active workstream is the NODES unified-patching arc,
-specced in `NODES.md` (phases E1–E4). If a `CONTINUE.md` exists at the repo root it is a
-mid-round session handoff — read it first, finish it, delete it.
+the Live/Max build-out are done); the active workstreams are the NODES unified-patching arc
+(`NODES.md`, phases E1–E4) and the WIRES↔PATCHER merge (`docs/UNIFIED_GRAPH.md`). If a
+`CONTINUE.md` exists at the repo root it is a mid-round session handoff — read it first,
+finish it, delete it.
+
+## Packaging & performance (cross-platform is mandatory — Linux + Windows)
+
+- **Static CRT for plug-and-play.** `CMAKE_MSVC_RUNTIME_LIBRARY = MultiThreaded` (set on
+  the top-level so JUCE/RubberBand/mimalloc inherit it) → the Windows build needs no VC++
+  redist. Don't switch to the DLL runtime.
+- **mimalloc is non-RT only** (`HIKIM_USE_MIMALLOC`, ON): it overrides C++ new/delete for
+  the message/disk threads; the audio thread never allocates, so it stays bit-neutral.
+  Resolved `find_package` first (offline/distro boxes), else FetchContent.
+- **RT thread priority** elevates *once on the audio thread itself*, on the first callback
+  after a (re)start (`rtPrioritySet`): MMCSS "Pro Audio" on Windows (links `avrt`),
+  `SCHED_FIFO` on Linux. It must stay a one-shot on the target thread — don't move it to
+  setup code.
+- **Installer**: `installer/hikim.iss` (Inno Setup 6) bundles `HIKIM.exe` + ffmpeg,
+  installs per-user (no UAC), and uses a HIKIM-voiced wizard (not the boilerplate). Build:
+  `ISCC.exe installer\hikim.iss`. App icon is `ICON_BIG` in CMake → `packaging/hikim.ico`.
 
 ## Conventions
 
