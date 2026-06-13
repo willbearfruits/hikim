@@ -60,7 +60,7 @@ private:
         mNew = 1, mOpen, mSave, mSaveAs, mExport, mQuit,
         mUndo, mRedo,
         mAddAudio, mAddMidi, mAddBus, mAddVideo, mAddPatchTrack,
-        mAudioSettings, mPluginManager, mVideoWindow,
+        mAudioSettings, mPluginManager, mVideoWindow, mMixerWindow,
         mThemeLight, mScale90, mScale100, mScale110, mScale125, mScale150,
         mCheckUpdates, mFocusMode
     };
@@ -75,6 +75,7 @@ private:
     void refreshTitle();
     void openInsertEditor (const String& trackUid, const String& insertUid);
     void showVideoWindow();
+    void showMixerWindow();                 // mixer is a detachable window (v2: separated)
     void timerCallback() override;
 
     std::unique_ptr<TransportBar> transportBar;
@@ -98,7 +99,7 @@ private:
     std::unique_ptr<SampleEditor> sampleEditor;
     void selectTab (const String& name);
 
-    std::unique_ptr<FloatingWindow> settingsWin, pluginWin, videoWin;
+    std::unique_ptr<FloatingWindow> settingsWin, pluginWin, videoWin, mixerWin;
     std::map<String, std::unique_ptr<FloatingWindow>> editorWindows;   // by insert uid
 
     juce::TooltipWindow tooltips { nullptr, 600 };

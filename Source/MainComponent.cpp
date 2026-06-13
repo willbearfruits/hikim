@@ -70,17 +70,17 @@ MainComponent::MainComponent()
     dock->registerPanel ("DEVICES", chainPanel.get(), Dock::zBottom);
     dock->registerPanel ("PIANO ROLL", pianoRoll.get(), Dock::zBottom);
     dock->registerPanel ("SAMPLE", sampleEditor.get(), Dock::zBottom);
-    dock->registerPanel ("MIXER", mixer.get(), Dock::zBottom);
     dock->registerPanel ("PATCH", patchView.get(), Dock::zRight);
+    // MIXER is not docked - it's a detachable floating window (Options > Mixer window)
 
     // one-time migration to the v2 band layout: drop the stored zone overrides
     // for the relocated panels so the new defaults win (returning users included)
-    if (props->getIntValue ("dock.layoutVersion", 1) < 2)
+    if (props->getIntValue ("dock.layoutVersion", 1) < 3)
     {
         for (auto* k : { "dock.zone.SAMPLE", "dock.zone.MIXER", "dock.zone.PIANO ROLL",
                          "dock.open.2", "dock.active.2", "dock.size.2" })
             props->removeValue (k);
-        props->setValue ("dock.layoutVersion", 2);
+        props->setValue ("dock.layoutVersion", 3);
     }
     dock->restore();
     dock->onLayoutChanged = [this] { resized(); };
@@ -169,6 +169,7 @@ MainComponent::~MainComponent()
     settingsWin.reset();
     pluginWin.reset();
     videoWin.reset();
+    mixerWin.reset();                       // non-owned mixer ref dies before the mixer
 }
 
 void MainComponent::resized()
@@ -322,6 +323,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int index, const String&)
     {
         m.addItem (mAudioSettings, "Audio device settings...");
         m.addItem (mPluginManager, "Plugin manager...");
+        m.addItem (mMixerWindow, "Mixer window...");
         m.addItem (mVideoWindow, "Video window...");
         m.addSeparator();
         m.addItem (mThemeLight, "Light theme", true, Look::get().isLight());
@@ -391,6 +393,9 @@ void MainComponent::menuItemSelected (int itemID, int)
         case mVideoWindow:
             showVideoWindow();
             break;
+        case mMixerWindow:
+            showMixerWindow();
+            break;
         case mThemeLight: applyTheme (! Look::get().isLight()); break;
         case mScale90:  applyScale (0.9); break;
         case mScale100: applyScale (1.0); break;
@@ -430,6 +435,18 @@ void MainComponent::showVideoWindow()
     }
     videoWin->setVisible (true);
     videoWin->toFront (true);
+}
+
+void MainComponent::showMixerWindow()
+{
+    if (mixerWin == nullptr)
+    {
+        mixerWin = std::make_unique<FloatingWindow> ("Mixer", [this] { mixerWin.reset(); });
+        mixer->setSize (900, 320);
+        mixerWin->setContentNonOwned (mixer.get(), true);   // MainComponent keeps owning the mixer
+    }
+    mixerWin->setVisible (true);
+    mixerWin->toFront (true);
 }
 
 // ---------------------------------------------------------------- window-wide drops
