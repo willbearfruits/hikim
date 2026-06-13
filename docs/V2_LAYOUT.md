@@ -215,21 +215,25 @@ HIKIM today: select / razor(=knife) / erase on 1/2/3, plus the new pencil on 4
 
 ## Phased plan (each phase = one shippable round)
 
-1. **Footer hint bar.** New `StatusBar` component + `ui.setHint`. Wire a handful of
-   hints. Free-standing, instant payoff. *(no model, no tests needed — pure UI)*
-2. **Re-home the device chain.** CHAIN → `zBottom`, make it the default bottom panel,
-   polish the device box (WIRES thumbnail, always-on `+`/"set instrument…"). This is
-   *the* fix; mostly `MainComponent.cpp` defaults + `ChainPanel` layout.
-3. **Selection-follows-detail.** `ui.onSelectionChanged` → `MainComponent` routes
-   `dock->showPanel`. Track→DEVICES, MIDI clip→PIANO ROLL, audio clip→SAMPLE.
-4. **Tools: Time-Select + visible timeline palette + hold-to-temp.** Logic (range
-   ops) is UI-free in `ClipOps` with tests; the palette is UI.
-5. **Inspector panel.** Thin right, collapsed by default, follows selection. Nicety.
+1. **Footer hint bar.** ✅ DONE (`482ce7e`). `Source/UI/StatusBar.h` (header-only) +
+   `ui.setHint`; per-view hints from `setView`.
+2. **Re-home the device chain.** ✅ DONE (`a61d2dc`). CHAIN → `zBottom`, renamed
+   **DEVICES**, default bottom panel; SAMPLE joined the band; one-time
+   `dock.layoutVersion` migration. `ChainPanel` was already horizontal — zero layout
+   change. (Deferred polish: WIRES device-box thumbnail.)
+3. **Selection-follows-detail.** ✅ DONE (`98c6b76`). `ui.onSelectionChanged` routes
+   `dock->showPanel("DEVICES")` on a track-kind change; clip double-clicks stamp the
+   clip kind so a pinned panel survives same-kind clicks. Verified: selecting Audio 1
+   flips the strip to "DEVICES: Audio 1".
+4. **Tools.** ✅ PARTIAL (`ebdee49`). Hold-to-temp shipped; the visible timeline
+   palette + piano-roll strip already existed. **Time-Select tool still TODO** (a range
+   tool — range ops UI-free in `ClipOps` with tests, then the band render + ops).
+5. **Inspector panel.** TODO. Thin right, collapsed by default, follows selection.
 6. **(later)** SESSION-as-a-strip over ARRANGE; horizontal selector chrome replacing
    the rotated side-rail labels.
 
-Phases 1–3 are the redesign the owner actually asked for and are ~2–3 days together.
-4–6 are polish that can trail.
+Phases 1–3 (the redesign the owner asked for) + hold-to-temp are landed. Remaining:
+Time-Select, the Inspector, and the later chrome work.
 
 ---
 
