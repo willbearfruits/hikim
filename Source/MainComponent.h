@@ -9,10 +9,8 @@
 #include "UI/Dialogs.h"
 #include "UI/BrowserPanel.h"
 #include "UI/ChainPanel.h"
-#include "UI/PatchView.h"
 #include "UI/SessionGrid.h"
 #include "UI/SampleEditor.h"
-#include "UI/RoutingView.h"
 #include "UI/Dock.h"
 #include "UI/StatusBar.h"
 
@@ -95,7 +93,6 @@ private:
     std::unique_ptr<FileBin> fileBin;
     std::unique_ptr<FxExplorer> fxExplorer;
     std::unique_ptr<ChainPanel> chainPanel;
-    std::unique_ptr<PatchView> patchView;
     std::unique_ptr<SampleEditor> sampleEditor;
     void selectTab (const String& name);
 

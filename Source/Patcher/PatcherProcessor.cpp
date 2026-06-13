@@ -34,10 +34,13 @@ const std::vector<PatcherProcessor::Spec>& PatcherProcessor::specs()
         { "param", oParam, 0, 1, "1", "host knob P1-8", famMath, "", "n" },
         { "metro", oMetro, 1, 1, "2", "pulse train (hz)", famTime, "n", "e" },
         { "random", oRandom, 1, 1, "", "random 0..1 on trigger", famTime, "e", "n" },
+        { "chaos", oChaos, 1, 1, "1", "Lorenz attractor -1..1 (rate)", famTime, "n", "n" },
+        { "drunk", oDrunk, 1, 1, "0.05", "drunk walk -1..1 (step)", famTime, "n", "n" },
         { "clock", oClock, 0, 4, "", "transport: bpm, beat 0-1, bar 0-1, bar #", famTime, "", "nnnn" },
         { "oscin", oOscIn, 0, 1, "9000 /ruin", "OSC receive (port, /addr)", famRouting, "", "n" },
         { "oscout", oOscOut, 1, 0, "127.0.0.1 57120 /ruin/out", "OSC send (host, port, /addr)", famRouting, "n", "" },
         { "modout", oModOut, 1, 0, "", "signal -> mod source in the PATCH bay", famRouting, "s", "" },
+        { "pset", oPset, 1, 0, "1 strip:gain", "write a parameter: <track#/name> <target> (e.g. 2 strip:gain)", famRouting, "n", "" },
         { "strip", oStrip, 3, 3, "1", "drive a channel: gain dB, pan, mute (track#/name)", famRouting, "nnn", "nnn" },
         { "master~", oMaster, 2, 0, "", "send straight to the master bus", famRouting, "ss", "" },
     };
@@ -49,6 +52,19 @@ const PatcherProcessor::Spec* PatcherProcessor::specFor (const String& name)
     for (const auto& s : specs())
         if (name == s.name) return &s;
     return nullptr;
+}
+
+std::vector<std::pair<String, std::shared_ptr<std::atomic<float>>>> PatcherProcessor::getParamWrites() const
+{
+    std::vector<std::pair<String, std::shared_ptr<std::atomic<float>>>> v;
+    for (const auto& n : patch)
+        if (n.hasType (kNodeId) && n[id::type].toString() == "pset")
+        {
+            auto it = paramWriteVals.find (n[id::uid].toString());
+            if (it != paramWriteVals.end() && it->second != nullptr)
+                v.push_back ({ n[kArgs].toString(), it->second });
+        }
+    return v;
 }
 
 PatcherProcessor::Obj PatcherProcessor::parseType (const String& name)
@@ -272,6 +288,12 @@ void PatcherProcessor::compile()
                 o.inj = ring;
                 break;
             }
+            case oChaos:
+                o.ph = 0.1;                          // seed the Lorenz x off the origin
+                break;
+            case oPset:
+                o.ext = paramWriteValueFor (uid);    // engine reads this value + the node's args
+                break;
             case oSample:
             case oGrain:
             {
@@ -297,6 +319,17 @@ void PatcherProcessor::compile()
     }
     if (injectsChanged && onInjectsChanged != nullptr)
         onInjectsChanged();             // master~ set changed: engine re-gathers
+
+    // pset set/target signature: fire so the engine re-resolves param targets
+    int psetSig = 0;
+    for (const auto& n : patch)
+        if (n.hasType (kNodeId) && n[id::type].toString() == "pset")
+            psetSig = psetSig * 31 + n[id::uid].toString().hashCode() + n[kArgs].toString().hashCode();
+    if (psetSig != lastPsetSig)
+    {
+        lastPsetSig = psetSig;
+        if (onParamWritesChanged != nullptr) onParamWritesChanged();
+    }
 
     if (numModOuts.exchange (modOutSeen) != modOutSeen && onModOutsChanged != nullptr)
         onModOutsChanged();             // message thread: compile runs via AsyncUpdater
@@ -583,6 +616,39 @@ void PatcherProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
                 }
                 break;
             }
+
+            case oChaos:    // Lorenz x as a -1..1 mod source (rate inlet/arg)
+                if (out0)
+                    for (int i = 0; i < n; ++i)
+                    {
+                        const double rate = i0 ? juce::jmax (0.0, (double) i0[i]) : (o.a <= 0 ? 1.0 : o.a);
+                        const double h = juce::jlimit (1.0e-6, 0.01, rate / sr * 6.0);
+                        const double dx = 10.0 * (o.lzY - o.ph);
+                        const double dy = o.ph * (28.0 - o.lzZ) - o.lzY;
+                        const double dz = o.ph * o.lzY - (8.0 / 3.0) * o.lzZ;
+                        o.ph += dx * h; o.lzY += dy * h; o.lzZ += dz * h;
+                        out0[i] = juce::jlimit (-1.0f, 1.0f, (float) (o.ph / 20.0));
+                    }
+                break;
+
+            case oDrunk:    // reflecting random walk -1..1 (step inlet/arg)
+                if (out0)
+                {
+                    const float step = i0 ? std::abs (i0[n - 1]) : (o.a <= 0 ? 0.05f : o.a);
+                    for (int i = 0; i < n; ++i)
+                    {
+                        o.held += (o.rng.nextFloat() * 2.0f - 1.0f) * step;
+                        if (o.held >  1.0f) o.held =  2.0f - o.held;     // bounce off the walls
+                        if (o.held < -1.0f) o.held = -2.0f - o.held;
+                        out0[i] = juce::jlimit (-1.0f, 1.0f, o.held);
+                    }
+                }
+                break;
+
+            case oPset:     // hand the last input value to the engine (it writes the param)
+                if (i0 != nullptr && o.ext != nullptr)
+                    o.ext->store (i0[n - 1]);
+                break;
 
             case oClock:    // transport as numbers: bpm, beat phase, bar phase, bar #
             {

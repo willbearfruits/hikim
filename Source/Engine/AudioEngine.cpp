@@ -62,6 +62,7 @@ AudioEngine::AudioEngine (SessionModel& s, PluginHost& ph, juce::PropertiesFile*
     });
     sessionGraph->onInjectsChanged = [this] { scheduleRebuild (rebuild::mods); };
     sessionGraph->onModOutsChanged = [this] { scheduleRebuild (rebuild::mods); };
+    sessionGraph->onParamWritesChanged = [this] { scheduleRebuild (rebuild::mods); };
 
     writeEvents.reserve (1 << 16);     // producers tryEnter+push from RT-reachable paths: no growth allowed
     hostedPump.startTimer (33);
@@ -1038,6 +1039,35 @@ void AudioEngine::rebuildMods()
         next->conns.push_back (std::move (c));
     }
 
+    // session-graph `pset` objects: each writes one parameter directly (no
+    // mods() entry, no centre - the graph IS the modulation). args = "<ref> <target>"
+    if (sessionGraph != nullptr)
+        for (auto& [args, val] : sessionGraph->getParamWrites())
+        {
+            auto toks = juce::StringArray::fromTokens (args, " ", "");
+            if (toks.size() < 2) continue;
+            auto t = resolveTrackRef (toks[0]);
+            if (! t.isValid()) continue;
+            juce::AudioProcessorGraph::Node::Ptr owner;
+            auto* param = resolveParamTarget (t[id::uid].toString(), toks[1], &owner);
+            if (param == nullptr) continue;
+            ModConn c;
+            c.param  = param;
+            c.owner  = owner;
+            c.extSrc = val;
+            c.amount = 1.0f;
+            c.base   = std::make_shared<std::atomic<float>> (0.0f);
+            c.uid    = "pset";
+            c.hosted = owner != nullptr
+                       && dynamic_cast<juce::AudioPluginInstance*> (owner->getProcessor()) != nullptr;
+            if (c.hosted)
+            {
+                c.hostedVal     = std::make_shared<std::atomic<float>> (std::numeric_limits<float>::quiet_NaN());
+                c.hostedApplied = std::make_shared<std::atomic<float>> (std::numeric_limits<float>::quiet_NaN());
+            }
+            next->conns.push_back (std::move (c));     // no ModListener: base stays 0, value is absolute
+        }
+
     juce::SpinLock::ScopedLockType sl (modLock);
     modGraveyard.push_back (pendingMods);
     pendingMods = next;
@@ -1099,7 +1129,9 @@ void AudioEngine::applyMods (juce::int64 pos, int numSamples)
     ++applyingAutomation;
     for (const auto& c : mods->conns)
     {
-        const float sv = c.src < kNumModSources
+        const float sv = c.extSrc != nullptr
+                             ? c.extSrc->load()                 // pset writes the value directly
+                             : c.src < kNumModSources
                              ? vals[c.src]
                              : mods->patchSrcs[(size_t) (c.src - kNumModSources)].proc->modOut (
                                    mods->patchSrcs[(size_t) (c.src - kNumModSources)].idx);

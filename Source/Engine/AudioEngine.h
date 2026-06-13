@@ -391,6 +391,7 @@ private:
         String uid;
         bool hosted = false;                            // hosted plugin: param applied by the message-thread pump
         std::shared_ptr<std::atomic<float>> hostedVal, hostedApplied;
+        std::shared_ptr<std::atomic<float>> extSrc;     // pset: absolute value source (base=0, amount=1)
     };
     struct PatchSrc
     {

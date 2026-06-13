@@ -24,7 +24,7 @@ public:
         oAdc, oDac, oOsc, oPhasor, oNoise, oLfo, oMul, oAdd, oLores, oHipass,
         oDelay, oTanh, oSah, oEnv, oMetro, oRandom, oScale, oSig, oParam,
         oOscIn, oOscOut, oModOut, oNumber, oChan, oStrip, oClock, oMaster,
-        oSample, oGrain, oUnknown
+        oSample, oGrain, oChaos, oDrunk, oPset, oUnknown
     };
     // NODES.md object families (palette sections + box/cable colours)
     enum Family { famSource, famEffect, famMath, famTime, famRouting };
@@ -119,6 +119,12 @@ public:
     }
     std::function<void()> onInjectsChanged;
 
+    // ---- pset: write any session parameter from the graph. The engine reads
+    // {args, live value} per pset node and applies it through its mod machinery
+    // (a ModConn.extSrc). args = "<track#/name> <target>", e.g. "2 strip:gain".
+    std::vector<std::pair<String, std::shared_ptr<std::atomic<float>>>> getParamWrites() const;
+    std::function<void()> onParamWritesChanged;   // engine re-gathers when the pset set changes
+
 private:
     struct PObj
     {
@@ -127,6 +133,7 @@ private:
         int in0 = -1, in1 = -1, in2 = -1;
         int out0 = -1, out1 = -1, out2 = -1, out3 = -1;
         double ph = 0;
+        double lzY = 0, lzZ = 0;                     // chaos: Lorenz y/z (ph is x)
         float z1 = 0, z2 = 0, held = 0, lastTrig = 0;
         std::vector<float> line;
         int wp = 0;
@@ -169,6 +176,14 @@ private:
     std::array<std::atomic<float>, kMaxModOuts> modOutVals {};
     std::atomic<int> numModOuts { 0 };
     std::map<String, std::shared_ptr<std::atomic<float>>> numberVals;   // message thread map
+    std::map<String, std::shared_ptr<std::atomic<float>>> paramWriteVals; // pset uid -> live value
+    int lastPsetSig = 0;
+    std::shared_ptr<std::atomic<float>> paramWriteValueFor (const String& uid)
+    {
+        auto& slot = paramWriteVals[uid];
+        if (slot == nullptr) slot = std::make_shared<std::atomic<float>> (0.0f);
+        return slot;
+    }
     ChanTapProvider chanTapProvider;
     StripCtlProvider stripCtlProvider;
     SampleProvider sampleProvider;

@@ -709,6 +709,45 @@ struct PatcherTests : juce::UnitTest
             transparent = std::abs (sgb.getSample (0, i) - sgref.getSample (0, i)) < 1.0e-9f
                        && std::abs (sgb.getSample (1, i) - sgref.getSample (1, i)) < 1.0e-9f;
         expect (transparent, "empty graph leaves audio untouched");
+
+        beginTest ("chaos and drunk stay bounded and finite");
+        for (const char* obj : { "chaos 1", "drunk 0.05" })
+        {
+            PatcherProcessor pc;
+            pc.setPlayConfigDetails (2, 2, 48000.0, 256);
+            auto src = pc.addNode (obj, 0, 0);
+            ValueTree dacC;
+            for (const auto& n : pc.patch) if (n[id::type].toString() == "dac~") dacC = n;
+            pc.addCable (src[id::uid].toString(), 0, dacC[id::uid].toString(), 0);
+            pc.prepareToPlay (48000.0, 256);
+            juce::AudioBuffer<float> bc (2, 256);
+            bool ok = true;
+            for (int k = 0; k < 200 && ok; ++k)
+            {
+                bc.clear(); pc.processBlock (bc, midi);
+                for (int i = 0; i < 256 && ok; ++i)
+                    ok = std::isfinite (bc.getSample (0, i)) && std::abs (bc.getSample (0, i)) <= 1.01f;
+            }
+            expect (ok, String (obj) + " bounded -1..1 and finite");
+        }
+
+        beginTest ("pset exposes its target + live value to the engine");
+        PatcherProcessor p17;
+        p17.setPlayConfigDetails (2, 2, 48000.0, 256);
+        auto sig17 = p17.addNode ("sig 0.7", 0, 0);
+        auto pset17 = p17.addNode ("pset 2 strip:gain", 0, 0);
+        p17.addCable (sig17[id::uid].toString(), 0, pset17[id::uid].toString(), 0);
+        p17.prepareToPlay (48000.0, 256);
+        juce::AudioBuffer<float> b17 (2, 256);
+        for (int k = 0; k < 4; ++k) { b17.clear(); p17.processBlock (b17, midi); }
+        auto writes = p17.getParamWrites();
+        expectEquals ((int) writes.size(), 1, "one pset surfaced");
+        if (! writes.empty())
+        {
+            expect (writes[0].first == "2 strip:gain", "target string preserved");
+            expect (std::abs (writes[0].second->load() - 0.7f) < 0.01f,
+                    "live value flows: " + String (writes[0].second->load()));
+        }
     }
 };
 

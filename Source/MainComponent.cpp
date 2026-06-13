@@ -55,7 +55,6 @@ MainComponent::MainComponent()
     fileBin = std::make_unique<FileBin> (*engine, appProps.getUserSettings());
     fxExplorer = std::make_unique<FxExplorer> (*pluginHost);
     chainPanel = std::make_unique<ChainPanel> (*engine, session, ui);
-    patchView = std::make_unique<PatchView> (*engine, session, ui);
     sampleEditor = std::make_unique<SampleEditor> (*engine, session, ui);
 
     // modular zones: find things LEFT, the selected thing RIGHT, the playing
@@ -70,8 +69,8 @@ MainComponent::MainComponent()
     dock->registerPanel ("DEVICES", chainPanel.get(), Dock::zBottom);
     dock->registerPanel ("PIANO ROLL", pianoRoll.get(), Dock::zBottom);
     dock->registerPanel ("SAMPLE", sampleEditor.get(), Dock::zBottom);
-    dock->registerPanel ("PATCH", patchView.get(), Dock::zRight);
-    // MIXER is not docked - it's a detachable floating window (Options > Mixer window)
+    // MIXER floats (Options > Mixer window); the PATCH mod bay is retired -
+    // modulation is now nodes in PATCHER (lfo~/chaos/drunk/env~ -> pset/strip)
 
     // one-time migration to the v2 band layout: drop the stored zone overrides
     // for the relocated panels so the new defaults win (returning users included)
