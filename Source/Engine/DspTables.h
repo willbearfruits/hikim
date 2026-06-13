@@ -33,13 +33,14 @@ namespace dg::tables
     }();
 
     // interpolated sine for any phase; wraps internally so callers that only
-    // partially reduce their phase (e.g. lfo~ at a very high rate) can't read
-    // past the table - std::sin was periodic, this must be too
+    // partially reduce their phase (e.g. lfo~ at a high or negative rate) can't
+    // read past the table - std::sin was periodic, this must be too
     inline float sineAt (double phase) noexcept
     {
-        phase -= std::floor (phase);                          // -> [0,1)
-        const double x = phase * (double) kSineSize;
-        const int i = (int) x;                                // now i in [0, kSineSize)
+        phase -= std::floor (phase);                          // -> [0,1], but FP can land on exactly 1.0
+        const double x = phase * (double) kSineSize;          // (e.g. floor(-1e-17)=-1, -1e-17+1 rounds to 1.0)
+        int i = (int) x;
+        if (i >= kSineSize) i = kSineSize - 1;                // clamp so i+1 stays inside the guard sample
         const float f = (float) (x - (double) i);
         return sine[(size_t) i] + (sine[(size_t) i + 1] - sine[(size_t) i]) * f;
     }

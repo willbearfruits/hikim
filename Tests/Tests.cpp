@@ -749,6 +749,25 @@ struct PatcherTests : juce::UnitTest
                     "live value flows: " + String (writes[0].second->load()));
         }
 
+        beginTest ("channel strip at unity passes audio bit-identically (vectorised path)");
+        ChannelStripProcessor strip ("T");          // default 0 dB, centre
+        strip.setPlayConfigDetails (2, 2, 48000.0, 256);
+        strip.prepareToPlay (48000.0, 256);
+        juce::AudioBuffer<float> warm (2, 256);
+        for (int k = 0; k < 24; ++k) { warm.clear(); strip.processBlock (warm, midi); }   // settle the smoother at 1.0
+        juce::AudioBuffer<float> sin0 (2, 256), swork (2, 256);
+        juce::Random sr2 (19);
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < 256; ++i)
+                sin0.setSample (ch, i, sr2.nextFloat() - 0.5f);
+        swork.makeCopyOf (sin0);
+        strip.processBlock (swork, midi);
+        bool stripExact = true;
+        for (int ch = 0; ch < 2 && stripExact; ++ch)
+            for (int i = 0; i < 256 && stripExact; ++i)
+                stripExact = swork.getSample (ch, i) == sin0.getSample (ch, i);   // bit-exact, not approx
+        expect (stripExact, "unity strip is sample-exact (locks the applyGain refactor)");
+
         // ---- curated DSP/number objects (m6) ----
         // helper: wire "<src> -> <obj> -> dac~" and return the dac~'s out0 over one block
         auto runChain = [&midi] (const String& srcText, const String& objText,

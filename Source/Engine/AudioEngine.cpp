@@ -6,7 +6,8 @@
 #if JUCE_WINDOWS
  #include <windows.h>
  #include <avrt.h>
- #pragma comment (lib, "avrt.lib")
+ // avrt is linked from CMakeLists (target_link_libraries ... avrt) so this works
+ // on every Windows toolchain, not just MSVC's #pragma comment(lib).
 #elif JUCE_LINUX || JUCE_BSD
  #include <pthread.h>
  #include <sched.h>
@@ -18,12 +19,16 @@ namespace dg
 // Give the device-callback thread realtime priority once it's running, on its
 // own thread. Best-effort and non-fatal: JUCE backends usually set a high
 // priority already, this makes it explicit (and RT where the platform allows).
-// Cross-platform; macOS is left to CoreAudio's time-constraint policy.
+// Called exactly once per (re)start. On Windows AvSetMmThreadCharacteristics
+// MUST run on the target thread (it characterises the caller) and is mildly
+// heavy (touches MMCSS) - so this is a deliberate ONE-SHOT cost on the very
+// first callback at stream start, before any audio is flowing (inaudible), not
+// a recurring audio-thread hole. macOS is left to CoreAudio's time-constraint.
 static void elevateCurrentThreadToAudioPriority()
 {
    #if JUCE_WINDOWS
     DWORD taskIndex = 0;
-    AvSetMmThreadCharacteristicsW (L"Pro Audio", &taskIndex);   // MMCSS
+    AvSetMmThreadCharacteristicsW (L"Pro Audio", &taskIndex);   // MMCSS, one-shot at start
    #elif JUCE_LINUX || JUCE_BSD
     sched_param sp {};
     const int maxPrio = sched_get_priority_max (SCHED_FIFO);

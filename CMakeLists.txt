@@ -134,19 +134,39 @@ endif()
 # identical on Windows/Linux/macOS. Opt out with -DHIKIM_USE_MIMALLOC=OFF.
 option(HIKIM_USE_MIMALLOC "Use mimalloc for the non-RT allocator" ON)
 if(HIKIM_USE_MIMALLOC)
-    include(FetchContent)
-    FetchContent_Declare(mimalloc
-        GIT_REPOSITORY https://github.com/microsoft/mimalloc.git
-        GIT_TAG v2.1.7
-        GIT_SHALLOW TRUE)
-    set(MI_OVERRIDE OFF CACHE BOOL "" FORCE)
-    set(MI_BUILD_SHARED OFF CACHE BOOL "" FORCE)
-    set(MI_BUILD_OBJECT OFF CACHE BOOL "" FORCE)
-    set(MI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(mimalloc)
-    target_link_libraries(dawglitch PRIVATE mimalloc-static)
-    target_include_directories(dawglitch PRIVATE "${mimalloc_SOURCE_DIR}/include")
-    target_compile_definitions(dawglitch PRIVATE DG_USE_MIMALLOC=1)
+    # System-first then FetchContent, matching the JUCE/RubberBand pattern - a
+    # distro-provided mimalloc (or an offline box with one installed) is used
+    # without any network fetch.
+    find_package(mimalloc QUIET)
+    if(mimalloc_FOUND)
+        # imported target is `mimalloc-static` (or `mimalloc`); prefer static
+        if(TARGET mimalloc-static)
+            target_link_libraries(dawglitch PRIVATE mimalloc-static)
+        else()
+            target_link_libraries(dawglitch PRIVATE mimalloc)
+        endif()
+        target_compile_definitions(dawglitch PRIVATE DG_USE_MIMALLOC=1)
+    else()
+        include(FetchContent)
+        FetchContent_Declare(mimalloc
+            GIT_REPOSITORY https://github.com/microsoft/mimalloc.git
+            GIT_TAG v2.1.7
+            GIT_SHALLOW TRUE)
+        set(MI_OVERRIDE OFF CACHE BOOL "" FORCE)
+        set(MI_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+        set(MI_BUILD_OBJECT OFF CACHE BOOL "" FORCE)
+        set(MI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        FetchContent_MakeAvailable(mimalloc)
+        target_link_libraries(dawglitch PRIVATE mimalloc-static)
+        target_include_directories(dawglitch PRIVATE "${mimalloc_SOURCE_DIR}/include")
+        target_compile_definitions(dawglitch PRIVATE DG_USE_MIMALLOC=1)
+    endif()
+endif()
+
+# avrt (MMCSS, used by the realtime audio-thread priority on Windows) - owned by
+# the build system so it links on every Windows toolchain, not just MSVC's pragma
+if(WIN32)
+    target_link_libraries(dawglitch PRIVATE avrt)
 endif()
 
 if(APPLE OR WIN32)
