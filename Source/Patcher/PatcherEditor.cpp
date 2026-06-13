@@ -234,12 +234,15 @@ public:
         if (e.mods.isPopupMenu())
         {
             juce::PopupMenu m;
+            const bool isPset = node[id::type].toString() == "pset" && editor.onPickTarget != nullptr;
+            if (isPset) m.addItem (2, "Set target...");
             m.addItem (1, "Delete object");
             auto* ed = &editor;
             ValueTree n = node;
             m.showMenuAsync ({}, [ed, n] (int r)
             {
                 if (r == 1) { ed->patcher.removeNode (n); ed->rebuildNodes(); }
+                else if (r == 2 && ed->onPickTarget != nullptr) ed->onPickTarget (n);
             });
             return;
         }

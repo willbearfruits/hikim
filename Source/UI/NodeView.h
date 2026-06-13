@@ -14,7 +14,7 @@ namespace dg
 class NodeView : public juce::Component
 {
 public:
-    explicit NodeView (AudioEngine& e) : engine (e) { showRoot(); }
+    NodeView (AudioEngine& e, SessionModel& s) : engine (e), session (s) { showRoot(); }
 
     void showRoot()
     {
@@ -84,12 +84,66 @@ private:
         {
             editor.reset (pp->createEditor());
             addAndMakeVisible (*editor);
+            // pset target-picker only at the session altitude (only the session
+            // graph's psets are gathered by the engine; device psets wouldn't apply)
+            if (auto* pe = dynamic_cast<PatcherEditor*> (editor.get()); pe != nullptr
+                    && pp == engine.getSessionGraph())
+                pe->onPickTarget = [this] (ValueTree n) { pickTarget (n); };
         }
         resized();
         repaint();
     }
 
+    // build a session-parameter menu and write "<track#> <target>" into the pset
+    void pickTarget (ValueTree psetNode)
+    {
+        juce::PopupMenu menu;
+        juce::StringArray entries;               // "<track#>\t<target>"
+        int nextId = 1, idx = 0;
+        for (const auto& track : session.tracks())
+        {
+            const String type = track[id::type];
+            if (type == "video") continue;
+            ++idx;                               // 1-based, matches resolveTrackRef
+            const int trackNum = idx;
+            juce::PopupMenu sub;
+            auto add = [&] (const String& label, const String& target)
+            {
+                sub.addItem (nextId++, label);
+                entries.add (String (trackNum) + "\t" + target);
+            };
+            add ("Volume", "strip:gain");
+            add ("Pan", "strip:pan");
+            add ("Mute", "strip:mute");
+            if (type == "audio" || type == "midi") { add ("Send A", "send:A"); add ("Send B", "send:B"); }
+            for (const auto& ins : SessionModel::insertsOf (track))
+                if (auto* proc = engine.getInsertProcessor (ins[id::uid].toString()))
+                {
+                    juce::PopupMenu insSub;
+                    const auto& params = proc->getParameters();
+                    const int count = juce::jmin (64, params.size());
+                    for (int i = 0; i < count; ++i)
+                    {
+                        insSub.addItem (nextId++, params[i]->getName (40));
+                        entries.add (String (trackNum) + "\tins:" + ins[id::uid].toString() + ":" + String (i));
+                    }
+                    if (count > 0) sub.addSubMenu (ins[id::name].toString(), insSub);
+                }
+            menu.addSubMenu (track[id::name].toString(), sub);
+        }
+
+        ValueTree n = psetNode;
+        menu.showMenuAsync ({}, [n, entries] (int r) mutable
+        {
+            if (r <= 0 || r > entries.size()) return;
+            auto parts = juce::StringArray::fromTokens (entries[r - 1], "\t", "");
+            if (parts.size() == 2)
+                n.setProperty (juce::Identifier ("args"), parts[0] + " " + parts[1], nullptr);
+        });
+    }
+
     AudioEngine& engine;
+    SessionModel& session;
     std::unique_ptr<juce::AudioProcessorEditor> editor;
     String divedInsert, deviceName;
     juce::Rectangle<int> sessionRect;

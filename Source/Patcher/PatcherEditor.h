@@ -53,6 +53,10 @@ public:
     PatcherProcessor& patcher;
     static constexpr int kPaletteW = 168;
 
+    // set by the host (NodeView) so a `pset` node can pick a session parameter
+    // target from a menu instead of typing it (the host has the engine)
+    std::function<void (ValueTree psetNode)> onPickTarget;
+
 private:
     class NodeComp;
     class ObjPalette;

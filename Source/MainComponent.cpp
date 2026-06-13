@@ -39,7 +39,7 @@ MainComponent::MainComponent()
     // PATCHER is now the session-scope node graph itself - a WIRES editor at the
     // top altitude (every object usable + makes sound), with a breadcrumb that
     // dives into a device's patch. This is the PATCHER + WIRES merge.
-    patcherView = std::make_unique<NodeView> (*engine);
+    patcherView = std::make_unique<NodeView> (*engine, session);
     addChildComponent (*patcherView);
     transportBar->onToggleView = [this] { toggleView(); };
     transportBar->onSetView = [this] (int v) { setView (v); };
