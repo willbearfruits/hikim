@@ -173,7 +173,7 @@ void ChainPanel::rebuild()
         resized();
         return;
     }
-    trackLabel.setText ("CHAIN: " + track[id::name].toString(), juce::dontSendNotification);
+    trackLabel.setText ("DEVICES: " + track[id::name].toString(), juce::dontSendNotification);
 
     auto inserts = SessionModel::insertsOf (track);
     shownInsertCount = inserts.getNumChildren();

@@ -67,11 +67,24 @@ MainComponent::MainComponent()
     dock = std::make_unique<Dock> (appProps.getUserSettings());
     dock->registerPanel ("FILES", fileBin.get(), Dock::zLeft);
     dock->registerPanel ("FX", fxExplorer.get(), Dock::zLeft);
-    dock->registerPanel ("CHAIN", chainPanel.get(), Dock::zRight);
-    dock->registerPanel ("SAMPLE", sampleEditor.get(), Dock::zRight);
-    dock->registerPanel ("PATCH", patchView.get(), Dock::zRight);
-    dock->registerPanel ("MIXER", mixer.get(), Dock::zBottom);
+    // v2: the device chain + clip editors are the horizontal BOTTOM band - the
+    // detail of whatever you selected. DEVICES leads (the old vertical CHAIN
+    // right-panel, now wide and short). PATCH (mod bay) stays on the right.
+    dock->registerPanel ("DEVICES", chainPanel.get(), Dock::zBottom);
     dock->registerPanel ("PIANO ROLL", pianoRoll.get(), Dock::zBottom);
+    dock->registerPanel ("SAMPLE", sampleEditor.get(), Dock::zBottom);
+    dock->registerPanel ("MIXER", mixer.get(), Dock::zBottom);
+    dock->registerPanel ("PATCH", patchView.get(), Dock::zRight);
+
+    // one-time migration to the v2 band layout: drop the stored zone overrides
+    // for the relocated panels so the new defaults win (returning users included)
+    if (props->getIntValue ("dock.layoutVersion", 1) < 2)
+    {
+        for (auto* k : { "dock.zone.SAMPLE", "dock.zone.MIXER", "dock.zone.PIANO ROLL",
+                         "dock.open.2", "dock.active.2", "dock.size.2" })
+            props->removeValue (k);
+        props->setValue ("dock.layoutVersion", 2);
+    }
     dock->restore();
     dock->onLayoutChanged = [this] { resized(); };
     addAndMakeVisible (*dock);
