@@ -80,6 +80,7 @@ public:
     // ---- modout taps: this patcher as a mod source in the PATCH bay ----
     static constexpr int kMaxModOuts = 8;
     int getNumModOuts() const                { return numModOuts.load(); }
+    bool isActive() const                    { return programActive.load(); }   // false = empty graph, skip it
     float modOut (int i) const               { return modOutVals[(size_t) juce::jlimit (0, kMaxModOuts - 1, i)].load(); }
     std::function<void()> onModOutsChanged;  // engine refreshes its mod-source list
 
@@ -176,6 +177,7 @@ private:
 
     std::array<std::atomic<float>, kMaxModOuts> modOutVals {};
     std::atomic<int> numModOuts { 0 };
+    std::atomic<bool> programActive { false };       // mirrors "compiled program has objects"
     std::map<String, std::shared_ptr<std::atomic<float>>> numberVals;   // message thread map
     std::map<String, std::shared_ptr<std::atomic<float>>> paramWriteVals; // pset uid -> live value
     int lastPsetSig = 0;

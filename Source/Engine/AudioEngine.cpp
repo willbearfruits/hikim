@@ -3,8 +3,37 @@
 #include "../Rack/RackProcessor.h"
 #include "../Patcher/PatcherProcessor.h"
 
+#if JUCE_WINDOWS
+ #include <windows.h>
+ #include <avrt.h>
+ #pragma comment (lib, "avrt.lib")
+#elif JUCE_LINUX || JUCE_BSD
+ #include <pthread.h>
+ #include <sched.h>
+#endif
+
 namespace dg
 {
+
+// Give the device-callback thread realtime priority once it's running, on its
+// own thread. Best-effort and non-fatal: JUCE backends usually set a high
+// priority already, this makes it explicit (and RT where the platform allows).
+// Cross-platform; macOS is left to CoreAudio's time-constraint policy.
+static void elevateCurrentThreadToAudioPriority()
+{
+   #if JUCE_WINDOWS
+    DWORD taskIndex = 0;
+    AvSetMmThreadCharacteristicsW (L"Pro Audio", &taskIndex);   // MMCSS
+   #elif JUCE_LINUX || JUCE_BSD
+    sched_param sp {};
+    const int maxPrio = sched_get_priority_max (SCHED_FIFO);
+    if (maxPrio > 0)
+    {
+        sp.sched_priority = juce::jlimit (1, maxPrio, maxPrio - 10);
+        pthread_setschedparam (pthread_self(), SCHED_FIFO, &sp);  // needs RLIMIT_RTPRIO; failure is harmless
+    }
+   #endif
+}
 
 namespace rebuild
 {
@@ -1611,6 +1640,7 @@ void AudioEngine::audioDeviceAboutToStart (juce::AudioIODevice* device)
     scratch.setSize (chans, currentBlock);
     segPtrs.malloc ((size_t) chans);
     midiCollector.reset (currentSR);
+    rtPrioritySet.store (false);                 // a (re)start may bring a fresh callback thread
 
     graph.setPlayConfigDetails (chans, chans, currentSR, currentBlock);
     graph.prepareToPlay (currentSR, currentBlock);
@@ -1706,6 +1736,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* input, i
                                                     const juce::AudioIODeviceCallbackContext&)
 {
     juce::ScopedNoDenormals noDenormals;
+    if (! rtPrioritySet.exchange (true))
+        elevateCurrentThreadToAudioPriority();    // once, on the real callback thread
     audioEpoch.fetch_add (1);
 
     {
@@ -1796,8 +1828,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* input, i
 
         // the session graph runs just before the track graph each chunk: its
         // master~ injects into master (which runs inside the graph below), its
-        // strip seizures re-stamp every chunk, its chan~ reads last chunk's taps
-        if (sessionGraph != nullptr && sgBuf.getNumSamples() >= len)
+        // strip seizures re-stamp every chunk, its chan~ reads last chunk's taps.
+        // Skipped entirely when the graph is empty (the default) - no clear, no call.
+        if (sessionGraph != nullptr && sessionGraph->isActive() && sgBuf.getNumSamples() >= len)
         {
             float* sgPtrs[2] = { sgBuf.getWritePointer (0), sgBuf.getWritePointer (1) };
             juce::AudioBuffer<float> sgSub (sgPtrs, 2, len);

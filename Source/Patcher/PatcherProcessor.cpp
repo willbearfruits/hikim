@@ -352,6 +352,7 @@ void PatcherProcessor::compile()
     prog->bufs.clear();
 
     rebuildOsc (*prog);
+    programActive.store (! prog->objs.empty());     // lets the host skip an empty session graph
 
     juce::SpinLock::ScopedLockType sl (progLock);
     graveyard.push_back (pendingProg);

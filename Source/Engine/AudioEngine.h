@@ -331,6 +331,7 @@ private:
     // bumped at entry of every device callback; serial callbacks mean observing
     // epoch E+2 proves any block that began before E+1 has returned
     std::atomic<juce::uint64> audioEpoch { 0 };
+    std::atomic<bool> rtPrioritySet { false };   // first callback after (re)start elevates its thread
 
     // transport
     std::atomic<juce::int64> transportPos { 0 };
