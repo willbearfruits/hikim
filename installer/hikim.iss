@@ -1,7 +1,7 @@
 ; HIKIM Windows installer (Inno Setup 6). Plug-and-play: the app is static-CRT
 ; linked (no VC++ redist needed) and ships a bundled ffmpeg so it decodes
 ; anything out of the box. Build: ISCC.exe installer\hikim.iss
-#define AppVer "0.3.1"
+#define AppVer "0.4.0"
 
 [Setup]
 AppId={{B1A7C3D2-7E4F-4A11-9C2D-6E0F1A2B3C4D}
