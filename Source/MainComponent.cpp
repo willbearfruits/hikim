@@ -37,9 +37,9 @@ MainComponent::MainComponent()
     addChildComponent (*sessionGrid);          // Tab / V / transport button cycles views
 
     // PATCHER is now the session-scope node graph itself - a WIRES editor at the
-    // top altitude. Every node object (osc~, chan~, strip, master~, sample~ ...)
-    // is usable here and makes sound; this is the PATCHER + WIRES merge.
-    patcherView.reset (engine->getSessionGraph()->createEditor());
+    // top altitude (every object usable + makes sound), with a breadcrumb that
+    // dives into a device's patch. This is the PATCHER + WIRES merge.
+    patcherView = std::make_unique<NodeView> (*engine);
     addChildComponent (*patcherView);
     transportBar->onToggleView = [this] { toggleView(); };
     transportBar->onSetView = [this] (int v) { setView (v); };
@@ -126,6 +126,7 @@ MainComponent::MainComponent()
     engine->onInsertWillBeRemoved = [this] (const String& insertUid)
     {
         editorWindows.erase (insertUid);    // editor + window die before their processor does
+        if (patcherView != nullptr) patcherView->insertRemoved (insertUid);   // dive climbs out too
     };
 
     session.onSessionReplaced = [this]
@@ -560,8 +561,21 @@ void MainComponent::refreshTitle()
 
 // ---------------------------------------------------------------- insert editors
 
-void MainComponent::openInsertEditor (const String&, const String& insertUid)
+void MainComponent::openInsertEditor (const String& trackUid, const String& insertUid)
 {
+    // a WIRES device is a node patch: dive into it on the PATCHER canvas rather
+    // than open a window (M5 - the device editor becomes a dive)
+    if (dynamic_cast<PatcherProcessor*> (engine->getInsertProcessor (insertUid)) != nullptr)
+    {
+        String name;
+        if (auto t = session.findTrack (trackUid); t.isValid())
+            for (auto ins : SessionModel::insertsOf (t))
+                if (ins[id::uid].toString() == insertUid) { name = ins[id::name].toString(); break; }
+        setView (2);                            // PATCHER
+        patcherView->dive (insertUid, name);
+        return;
+    }
+
     auto existing = editorWindows.find (insertUid);
     if (existing != editorWindows.end() && existing->second != nullptr)
     {

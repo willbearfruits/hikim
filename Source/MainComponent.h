@@ -13,6 +13,7 @@
 #include "UI/SampleEditor.h"
 #include "UI/Dock.h"
 #include "UI/StatusBar.h"
+#include "UI/NodeView.h"
 
 namespace dg
 {
@@ -79,7 +80,7 @@ private:
     std::unique_ptr<TransportBar> transportBar;
     std::unique_ptr<TimelineView> timeline;
     std::unique_ptr<SessionGrid> sessionGrid;
-    std::unique_ptr<juce::AudioProcessorEditor> patcherView;   // PATCHER = a node editor on the session graph
+    std::unique_ptr<NodeView> patcherView;  // PATCHER = the session graph + dive/breadcrumb
     int viewMode = 0;                       // 0 arrange, 1 session, 2 patcher
     std::unique_ptr<Dock> dock;             // modular LEFT/RIGHT/BOTTOM panel zones
     std::unique_ptr<StatusBar> statusBar;   // v2 footer hint bar
